@@ -1,0 +1,50 @@
+#!/usr/bin/bash
+# Container build script for Faun Linux & Windows SDKs.
+
+if [ ! -s project.tar.gz ]; then
+    copr -a
+fi
+
+TIME=$(date +%H%M%S)
+SCRIPT=build-$TIME
+ID=${SCRIPT}
+HDIR=/tmp
+CDIR=/tmp
+ARC_DIR=/tmp/faun_sdk-0.1.0
+
+case $1 in
+windows)
+    echo '
+  mkdir faun
+  cd faun
+  tar xf /tmp/project.tar.gz
+  copr -t mingw
+' >$HDIR/${SCRIPT}
+
+    mkdir -p ${ARC_DIR}
+    podman run -d -it --name=$ID xu4/f33-mingw:1.1 /bin/bash || exit
+    podman cp project.tar.gz $ID:$CDIR
+    podman cp $HDIR/${SCRIPT} $ID:$CDIR/${SCRIPT}
+    podman exec -it -u build $ID /bin/bash $CDIR/${SCRIPT}
+    podman cp $ID:/home/build/faun/libfaun.dll ${ARC_DIR} || exit
+    podman cp $ID:/home/build/faun/faun_test.exe ${ARC_DIR}
+
+    # Build archive.
+    if [ "$2" != "-b" ]; then
+        mkdir ${ARC_DIR}/include
+        cp faun.h ${ARC_DIR}/include
+        FN=`readlink -f vorbis-dll.tar.bz2`
+        tar xf $FN -C ${ARC_DIR}
+        cd ${ARC_DIR%/*}; zip -r faun-x86_64-w64-mingw32-dynamic-0.1.0.zip ${ARC_DIR##*/}
+    fi
+    ;;
+
+*)
+    echo "Usage: $0 {linux|windows} [-b]"
+    echo -e '\nOptions:'
+    echo '  -b    Build binary only; do not create archive.'
+    exit 1
+esac
+
+echo "$SCRIPT done!"
+podman stop $ID

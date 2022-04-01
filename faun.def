@@ -1,0 +1,16 @@
+LIBRARY faun.dll
+EXPORTS
+  faun_startup           @1
+  faun_shutdown          @2
+  faun_suspend           @3
+  faun_setErrorStream    @4
+  faun_pollSignals       @5
+  faun_waitSignal        @6
+  faun_control           @7
+  faun_setParameter      @8
+  faun_loadBuffer        @9
+  faun_freeBuffers       @10
+  faun_playSource        @11
+  faun_playStream        @12
+  faun_playStreamPart    @13
+  faun_closeOnSignal     @14
