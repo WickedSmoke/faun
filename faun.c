@@ -267,8 +267,8 @@ typedef struct {
     int16_t     feed;
     int16_t     _pad;
     double      start;
-    uint32_t    sampleCount;
-    uint32_t    sampleLimit;
+    uint32_t    sampleCount;    // Number of samples read
+    uint32_t    sampleLimit;    // Number of samples to buffer before ending
     FileChunk   chunk;
     OggVorbis_File vf;
     vorbis_info* vinfo;
@@ -950,8 +950,7 @@ static void cmd_playStreamPart(int si, double start, double duration, int mode)
 
 /**
   Called periodically (once per frame) to decode audio from file.
-  Should only be called if st->source, st->feed, and st->chunk.cfile are
-  all non-zero.
+  Should only be called if st->feed and st->chunk.cfile are both non-zero.
 */
 static void stream_fillBuffers(StreamOV* st)
 {
@@ -967,7 +966,10 @@ read_again:
         {
             faun_queueBuffer(&st->source, freeBuf);
             if (SEGMENT_SET(st) && st->sampleCount >= st->sampleLimit)
+            {
+                freeBuf->used -= st->sampleCount - st->sampleLimit;
                 status |= RSTAT_EOF;
+            }
         }
 
         if( status & RSTAT_ERROR )
