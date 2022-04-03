@@ -1,0 +1,40 @@
+#!/bin/bash
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "Configuration Options:"
+  echo "  -h, --help        Display this help and exit"
+  echo "  --no_flac         Exclude FLAC decoder"
+  echo "  --static          Build static library (default is shared)"
+  echo "  --prefix <dir>    Set install directory root"
+  exit
+fi
+
+FLAC=1
+STATIC=0
+PREFIX=/usr/local
+
+while [ "$1" != "" ]; do
+  case $1 in
+    --no_flac)
+      FLAC=0 ;;
+    --static)
+      STATIC=1 ;;
+    --prefix)
+      shift
+      PREFIX=$1 ;;
+    *)
+      echo "Invalid option $1"
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+logic() {
+  [ $1 = 0 ] && echo false || echo true
+}
+
+echo "Generating make.config & project.config"
+printf "flac: $(logic ${FLAC})\nstatic: $(logic ${STATIC})\n" >project.config
+printf "FLAC=${FLAC}\nSTATIC=${STATIC}\nDESTDIR=${PREFIX}\n" >make.config
+echo "Now type make (or copr) to build."

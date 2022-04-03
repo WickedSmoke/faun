@@ -1,11 +1,18 @@
 # GNU Makefile for libfaun
 
-#STATIC_LIB=true
+-include make.config
+
+ifeq ($(STATIC),1)
+    STATIC_LIB=true
+endif
 
 CFLAGS=-O3 -DNDEBUG
 #CFLAGS=-g -DDEBUG
 
-OPT=-DCAPTURE -DUSE_SFX_GEN -DUSE_FLAC
+OPT=-DCAPTURE -DUSE_SFX_GEN
+ifeq ($(FLAC),1)
+	OPT+=-DUSE_FLAC
+endif
 
 DESTDIR ?= /usr/local
 
