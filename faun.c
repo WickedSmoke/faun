@@ -845,7 +845,7 @@ static void stream_stop(StreamOV* st)
 }
 
 
-#define FADE_DELTA(period)  ((1.0f / UPDATE_HZ) / period)
+#define FADE_DELTA(period)  ((1.0f / UPDATE_HZ) / period * src->volume)
 #define GAIN_SILENCE_THRESHOLD  0.001f
 
 static inline void source_fadeOut(FaunSource* src)
