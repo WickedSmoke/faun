@@ -125,6 +125,7 @@ static inline int semaphoreWait(Semaphore* sema)
 #endif
 }
 
+#ifndef __linux__
 /*
  * Return 0 if semaphore was locked, 1 on timeout, or -1 on error.
  */
@@ -175,6 +176,7 @@ static inline int semaphoreTimedWait(Semaphore* sema, int timeout)
     return -1;
 #endif
 }
+#endif
 
 //----------------------------------------------------------------------------
 
@@ -261,6 +263,7 @@ int tmsg_pop(struct MsgPort* mp, void* msg)
     return 0;
 }
 
+#ifndef __linux__
 int tmsg_pushTimeout(struct MsgPort* mp, const void* msg, int msec)
 {
     int r = semaphoreTimedWait(&mp->writer, msec);
@@ -294,3 +297,52 @@ int tmsg_popTimeout(struct MsgPort* mp, void* msg, int msec)
     semaphorePost(mp->writer);
     return 0;
 }
+
+#else
+
+/*
+ * Set timespec to a given number of milliseconds ahead of the current time.
+ */
+void tmsg_setTimespec(struct timespec* ts, int msec)
+{
+    clock_gettime(CLOCK_REALTIME, ts);
+
+#if 1
+    // Quick version when msec < 1000.
+    ts->tv_nsec += msec * 1000000;
+#else
+    ts->tv_sec  += msec / 1000;
+    ts->tv_nsec += (msec % 1000) * 1000000;
+#endif
+
+    // Adjust tv_nsec to less than 1000 million to avoid EINVAL.
+    if (ts->tv_nsec >= 1000000000) {
+        ts->tv_nsec -= 1000000000;
+        ts->tv_sec  += 1;
+    }
+}
+
+/*
+ * Return 0 if a message arrived, 1 on timeout, or -1 on error.
+ */
+int tmsg_popTimespec(struct MsgPort* mp, void* msg, struct timespec* ts)
+{
+    int r;
+
+    r = sem_timedwait(&mp->reader, ts);
+    while (-1 == r && EINTR == errno)   // Handle signal interruption.
+        r = sem_timedwait(&mp->reader, ts);
+    if (r < 0)
+        return (errno == ETIMEDOUT) ? 1 : r;
+
+    mutexLock(mp->mutex);
+    memcpy(msg, mp->buf + mp->tail * mp->msize, mp->msize);
+    mp->used -= 1;
+    mp->tail = (mp->tail + 1) % mp->avail;
+    assert(mp->used >= 0);
+    mutexUnlock(mp->mutex);
+
+    semaphorePost(mp->writer);
+    return 0;
+}
+#endif

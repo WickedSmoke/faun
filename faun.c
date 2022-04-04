@@ -35,6 +35,8 @@
 #include "faun.h"
 
 #ifdef __linux__
+extern void tmsg_setTimespec(struct timespec* ts, int msec);
+extern int  tmsg_popTimespec(struct MsgPort*, void* msg, struct timespec* ts);
 #include "pulseaudio.c"
 #elif defined(_WIN32)
 //#include "dsound.c"
@@ -290,7 +292,11 @@ enum ReadOggStatus {
 };
 
 #define UPDATE_HZ   30
+#ifdef __linux__
+#define SLEEP_MS    (1000/UPDATE_HZ-1)
+#else
 #define SLEEP_MS    (1000/UPDATE_HZ/3)
+#endif
 #define BUFFER_MAX  256
 #define SOURCE_MAX  32
 #define STREAM_MAX  6
@@ -1134,6 +1140,9 @@ static void* audioThread(void* arg)
     uint32_t mixSampleLen = voice->mix.avail;
     int i;
     struct MsgPort* port = voice->cmd;
+#ifdef __linux__
+    struct timespec ts;
+#endif
     int sleepTime = SLEEP_MS;
     int n;
 
@@ -1163,12 +1172,22 @@ static void* audioThread(void* arg)
     }
 #endif
 
+#ifdef __linux__
+    tmsg_setTimespec(&ts, sleepTime);
+#endif
+
     for (;;)
     {
         // Wait for commands.
         COUNTER(t);
         if (sleepTime > 0)
+        {
+#ifdef __linux__
+            n = tmsg_popTimespec(port, cmd, &ts);
+#else
             n = tmsg_popTimeout(port, cmd, sleepTime);
+#endif
+        }
         else
             n = tmsg_pop(port, cmd);
 #ifdef CPUCOUNTER_H
@@ -1475,6 +1494,10 @@ end_play:
                 wfp = NULL;
             }
         }
+#endif
+
+#ifdef __linux__
+        tmsg_setTimespec(&ts, sleepTime);
 #endif
     }
 
