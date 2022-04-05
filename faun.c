@@ -99,6 +99,7 @@ enum FaunCmd {
     CMD_QUIT,
     CMD_SUSPEND,
     CMD_RESUME,
+    CMD_PROGRAM,
     CMD_SET_BUFFER,
     CMD_BUFFERS_FREE,
     CMD_PLAY_SOURCE,
@@ -120,6 +121,16 @@ enum FaunCmd {
 
 #define MSG_SIZE    20
 #define SIG_SIZE    2
+#define PROG_MAX    32
+
+typedef struct {
+    uint8_t code[PROG_MAX];
+    int pc;
+    int used;
+    int si;
+    uint32_t waitPos;
+}
+FaunProgram;
 
 enum SourceState {
     SS_UNUSED,
@@ -527,7 +538,8 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         size_t toRead, n;
         uint32_t inUsed, procLen;
         uint32_t bufPos = 0;
-        uint32_t frate, fchannels;
+        //uint32_t frate;
+        uint32_t fchannels;
         float* pcmOut = NULL;
         fx_flac_state_t fstate;
         fx_flac_t* flac = FX_FLAC_ALLOC_SUBSET_FORMAT_DAT();
@@ -557,12 +569,12 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
                 break;
             }
             if (fstate == FLAC_END_OF_METADATA) {
-                frate     = fx_flac_get_streaminfo(flac, FLAC_KEY_SAMPLE_RATE);
+              //frate     = fx_flac_get_streaminfo(flac, FLAC_KEY_SAMPLE_RATE);
                 fchannels = fx_flac_get_streaminfo(flac, FLAC_KEY_N_CHANNELS);
                 frames    = fx_flac_get_streaminfo(flac, FLAC_KEY_N_SAMPLES);
 
-                printf("FLAC rate:%d channels:%d samples:%d\n",
-                        frate, fchannels, frames);
+                //printf("FLAC rate:%d channels:%d samples:%d\n",
+                //        frate, fchannels, frames);
 
                 // NOTE: Zero for total samples denotes 'unknown' and is valid.
                 if (! frames) {
@@ -887,6 +899,38 @@ static void source_setMode(FaunSource* src, int mode)
 }
 
 
+static void cmd_playSource(int si, uint32_t bufIds, int mode)
+{
+    FaunSource* src = _asource + si;
+    FaunBuffer* buf = _abuffer + (bufIds & BID_PACKED);
+    uint32_t ftotal;
+
+    //printf("CMD source play %d buf:%x mode:%d\n", si, bufIds, mode);
+    faun_setBuffer(src, buf);
+    ftotal = buf->used;
+    for (bufIds >>= 10; bufIds; bufIds >>= 10) {
+         buf = _abuffer + ((bufIds-1) & BID_PACKED);
+        faun_queueBuffer(src, buf);
+        ftotal += buf->used;
+    }
+
+    src->playPos = src->framesOut = 0;
+    source_setMode(src, mode);
+
+    if (mode & FAUN_PLAY_FADE_OUT) {
+        uint32_t ff = (uint32_t) (src->fadePeriod * 44100.0f);
+        // Avoiding overlap with any fade-in.
+        if (ftotal > 2*ff)
+            src->fadePos = ftotal - ff;
+    }
+
+    if (mode & (FAUN_PLAY_ONCE | FAUN_PLAY_LOOP))
+        src->state = SS_PLAYING;
+    else
+        src->state = SS_STOPPED;
+}
+
+
 static void cmd_playStream(int si, const FileChunk* fc, int mode)
 {
     StreamOV* st = _stream + (si - _sourceLimit);
@@ -1109,6 +1153,168 @@ void faun_mixBuffers(float* output, const float** input, const float* inGain,
 
 //----------------------------------------------------------------------------
 
+static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
+{
+    const uint8_t* pc;
+    const uint8_t* end;
+    FaunSource* src;
+    int i;
+
+    if (prog->waitPos) {
+        if (mixClock < prog->waitPos)
+            return;
+        prog->waitPos = 0;
+    }
+
+    pc  = prog->code + prog->pc;
+    end = prog->code + prog->used;
+
+    do {
+        switch (*pc++) {
+            default:
+                fprintf(_errStream, "Invalid opcode %x\n", pc[-1]);
+                // Fall through...
+
+            case FO_END:
+                prog->pc = prog->used = 0;
+                return;
+
+            case FO_WAIT:
+                prog->waitPos = mixClock + (*pc++) * 4410;
+                prog->pc = pc - prog->code;
+                return;
+
+            case FO_SOURCE:
+                prog->si = *pc++;
+                break;
+
+            case FO_QUEUE:
+                if (prog->si < _sourceLimit)
+                    faun_queueBuffer(_asource + prog->si, _abuffer + (*pc++));
+                break;
+
+            case FO_QUEUE_DONE:
+                i = FAUN_PLAY_ONCE | FAUN_SIGNAL_DONE;
+playSrc:
+                if (prog->si < _sourceLimit)
+                    cmd_playSource(prog->si, *pc++, i);
+                break;
+
+            case FO_QUEUE_FADE:
+                i = FAUN_PLAY_ONCE | FAUN_PLAY_FADE;
+                goto playSrc;
+
+            case FO_QUEUE_FADE_DONE:
+                i = FAUN_PLAY_ONCE | FAUN_PLAY_FADE | FAUN_SIGNAL_DONE;
+                goto playSrc;
+                break;
+
+            case FO_PLAY_ONCE:
+                if (prog->si < _sourceLimit)
+                    cmd_playSource(prog->si, *pc++, FAUN_PLAY_ONCE);
+                break;
+
+            case FO_PLAY_LOOP:
+                if (prog->si >= _sourceLimit) {
+                    StreamOV* st = _stream + (prog->si - _sourceLimit);
+                    st->source.mode |= FAUN_PLAY_LOOP;
+                    stream_start(st);
+                }
+                break;
+
+            case FO_SET_VOL:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+                src->volume = src->gain = (float) (*pc++) / 255.0f;
+                break;
+
+            case FO_SET_PAN:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+                src->pan = (float) (*pc++) / 255.0f;
+                break;
+
+            case FO_SET_FADE:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+                src->fadePeriod = (float) (*pc++) / 10.0f;
+                break;
+
+            case FO_SET_END:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+            {
+                uint32_t pos = *pc++;
+                _asource[prog->si].endPos = pos ? pos * 4410 : END_POS_NONE;
+            }
+                break;
+
+            case FO_LOOP_ON:
+            case FO_LOOP_OFF:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+            {
+                uint16_t mode = src->mode & ~(FAUN_PLAY_ONCE | FAUN_PLAY_LOOP);
+                if (pc[-1] == FO_LOOP_ON)
+                    mode |= FAUN_PLAY_LOOP;
+                src->mode = mode;
+            }
+                break;
+
+            /*
+            case FO_FADE_ON:
+            case FO_FADE_OFF:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+            {
+                uint16_t mode = src->mode & ~FAUN_PLAY_FADE;
+                if (pc[-1] == FO_FADE_ON)
+                    mode |= FAUN_PLAY_FADE;
+                src->mode = mode;
+            }
+                break;
+            */
+
+            case FO_FADE_IN:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+                src->gain = 0.0f;
+                src->fade = FADE_DELTA(src->fadePeriod);
+                break;
+
+            case FO_FADE_OUT:
+                i = prog->si;
+                src = (i < _sourceLimit) ? _asource + i
+                                         : &_stream[i - _sourceLimit].source;
+                source_fadeOut(src);
+                break;
+
+            case FO_CAPTURE:
+#ifdef CAPTURE
+            {
+                char* outfile = getenv("FAUN_CAPTURE");
+                if (outfile && wfp == NULL) {
+                    wfp = wav_open(outfile, 44100 /*voice->mix.rate*/, 16, 2);
+                    endOnSignal = endCapture = 0;
+                }
+            }
+#endif
+                break;
+        }
+    } while (pc != end);
+
+    prog->pc = prog->used = 0;
+}
+
+//----------------------------------------------------------------------------
+
 //#include "cpuCounter.h"
 
 #ifdef _WIN32
@@ -1117,6 +1323,7 @@ static DWORD WINAPI audioThread(LPVOID arg)
 static void* audioThread(void* arg)
 #endif
 {
+    FaunProgram prog;
     FaunVoice* voice = arg;
     FaunSource* src;
     FaunBuffer* buf;
@@ -1129,6 +1336,7 @@ static void* audioThread(void* arg)
     CommandA* cmd = (CommandA*) cmdBuf;
     int sourceCount;
     uint32_t mixed;
+    uint32_t totalMixed = 0;    // Wraps after 27 hours.
     uint32_t fragmentLen;
     uint32_t samplesAvail;
     uint32_t mixSampleLen = voice->mix.avail;
@@ -1154,15 +1362,8 @@ static void* audioThread(void* arg)
     input     = (const float**) (mixSource + n);
     inputGain = (float*) (input + n);
 
-#ifdef CAPTURE
-    {
-    char* outfile = getenv("FAUN_CAPTURE");
-    if (outfile) {
-        wfp = wav_open(outfile, voice->mix.rate, 16, 2);
-        endOnSignal = endCapture = 0;
-    }
-    }
-#endif
+    prog.pc = prog.used = prog.si = 0;
+    prog.waitPos = 0;
 
     tmsg_setTimespec(&ts, sleepTime);
 
@@ -1200,6 +1401,16 @@ static void* audioThread(void* arg)
                     sysaudio_startVoice(voice);
                     break;
 
+                case CMD_PROGRAM:
+                    n = cmd->select;
+                    if (prog.used + n > PROG_MAX)
+                        fprintf(_errStream, "Program buffer overflow\n");
+                    else {
+                        memcpy(prog.code + prog.used, cmdBuf + 2, n);
+                        prog.used += n;
+                    }
+                    break;
+
                 case CMD_SET_BUFFER:
                     //printf("CMD set buffer bi:%d cmdPart:%d\n",
                     //       cmd->select, cmdPart);
@@ -1222,39 +1433,7 @@ static void* audioThread(void* arg)
                     break;
 
                 case CMD_PLAY_SOURCE:
-                {
-                    uint32_t ftotal;
-                    //printf("CMD source play %d buf:%x mode:%d\n",
-                    //       cmd->select, cmd->arg.u32[0], cmd->ext);
-                    src = _asource + cmd->select;
-                    n = cmd->arg.u32[0];
-                    buf = _abuffer + (n & BID_PACKED);
-                    faun_setBuffer(src, buf);
-                    ftotal = buf->used;
-                    for (n >>= 10; n; n >>= 10) {
-                         buf = _abuffer + ((n-1) & BID_PACKED);
-                        faun_queueBuffer(src, buf);
-                        ftotal += buf->used;
-                    }
-
-                    src->playPos = src->framesOut = 0;
-
-                    n = cmd->ext;
-                    source_setMode(src, n);
-
-                    if (n & FAUN_PLAY_FADE_OUT) {
-                        uint32_t ff = (uint32_t) (src->fadePeriod * 44100.0f);
-                        // Avoiding overlap with any fade-in.
-                        if (ftotal > 2*ff)
-                            src->fadePos = ftotal - ff;
-                    }
-
-                    if (n & (FAUN_PLAY_ONCE | FAUN_PLAY_LOOP)) {
-                        src->state = SS_PLAYING;
-                    } else {
-                        src->state = SS_STOPPED;
-                    }
-                }
+                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext);
                     break;
 
                 case CMD_OPEN_STREAM:
@@ -1350,6 +1529,9 @@ static void* audioThread(void* arg)
         // Go back to waiting if suspended.
         if (sleepTime < 0)
             continue;
+
+        if (prog.used)
+            faun_evalProg(&prog, totalMixed);
 
         COUNTER(t);
 
@@ -1457,6 +1639,7 @@ end_play:
                 }
             }
             mixed += fragmentLen;
+            totalMixed += fragmentLen;
         }
 
         // Send final mix to audio system.
@@ -1891,6 +2074,36 @@ void faun_setParameter(int si, int count, uint8_t param, float value)
         cmd.ext    = count;
         cmd.arg.f[0] = value;
         faun_command(&cmd, 8);
+    }
+}
+
+
+/**
+  Execute Faun program.
+
+  The bytecode program must be terminated by FO_END.
+
+  \param bytecode   FuanOpcode instructions and data.
+  \param len        Byte length of bytecode.
+*/
+void faun_program(const uint8_t* bytecode, int len)
+{
+    if( _audioUp )
+    {
+        uint8_t cmd[MSG_SIZE];
+        int clen;
+
+        cmd[0] = CMD_PROGRAM;
+
+        while (len > 0)
+        {
+            clen = (len > (MSG_SIZE-2)) ? MSG_SIZE-2 : len;
+            len -= clen;
+            cmd[1] = clen;
+            memcpy(cmd+2, bytecode, clen);
+            bytecode += clen;
+            tmsg_push(_voice.cmd, &cmd);
+        }
     }
 }
 

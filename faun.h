@@ -27,6 +27,28 @@ enum FaunCommand {
     FC_COUNT
 };
 
+enum FaunOpcode {
+    FO_END,
+    FO_WAIT,            // 1/10 second units
+    FO_SOURCE,          // Source #
+    FO_QUEUE,           // Buffer #
+    FO_QUEUE_DONE,      // Buffer #
+    FO_QUEUE_FADE,      // Buffer #
+    FO_QUEUE_FADE_DONE, // Buffer #
+    FO_PLAY_ONCE,       // Buffer #
+    FO_PLAY_LOOP,       // FIXME: Make FO_PLAY_ONCE & FO_PLAY_LOOP consitent!
+    FO_SET_VOL,         // Unit value
+    FO_SET_PAN,
+    FO_SET_FADE,        // 1/10 second units
+    FO_SET_END,         // 1/10 second units
+    FO_LOOP_ON,
+    FO_LOOP_OFF,
+    FO_FADE_IN,
+    FO_FADE_OUT,
+    FO_CAPTURE,
+    FO_COUNT
+};
+
 enum FaunPlayMode {
     FAUN_PLAY_ONCE      = 0x0001,
     FAUN_PLAY_LOOP      = 0x0080,
@@ -66,8 +88,8 @@ void faun_setErrorStream(FILE*);
 int  faun_pollSignals(FaunSignal* sigbuf, int count);
 void faun_waitSignal(FaunSignal* sigbuf);
 void faun_control(int si, int count, int command);
-//void faun_controlSeq(int si, int count, const uint8_t* commands);
 void faun_setParameter(int si, int count, uint8_t param, float value);
+void faun_program(const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
 void  faun_freeBuffers(int bi, int count);

@@ -52,6 +52,9 @@ int main(int argc, char** argv)
     const char* error;
     const char* arg;
     FaunSignal sig;
+    uint8_t program[32];
+    uint8_t* pc = program;
+    int opcodeMode = 0;
     int i, ch;
     int si = 0;
     int enabled = 1;
@@ -64,6 +67,10 @@ int main(int argc, char** argv)
     }
 
 #define INC_ARG     if (++i >= argc) break
+
+#define PUSH_OP_ARG(opcode) \
+    *pc++ = opcode; \
+    *pc++ = atoi(argv[i] + 2)
 
     for (i = 1; i < argc; ++i)
     {
@@ -97,18 +104,23 @@ int main(int argc, char** argv)
                 size = atol(argv[i]);
                 break;
 
-            case 'p':                   // Play Source
-                INC_ARG;
-                INC_ARG;
-                faun_playSource(atoi(arg+2), hex(argv[i-1]), hex(argv[i]));
-                break;
-
             case 'm':                   // Play Music (Stream)
                 si = atoi(arg+2);
                 INC_ARG;
                 INC_ARG;
                 faun_playStream(si, argv[i], offset, size, hex(argv[i-1]));
                 offset = size = 0;
+                break;
+
+            case 'o':                   // Begin program opcodes
+                opcodeMode = 1;
+                pc = program;
+                break;
+
+            case 'p':                   // Play Source
+                INC_ARG;
+                INC_ARG;
+                faun_playSource(atoi(arg+2), hex(argv[i-1]), hex(argv[i]));
                 break;
 
             case 's':                   // Stream Segment
@@ -135,6 +147,105 @@ int main(int argc, char** argv)
 
             default:
                 goto invalid;
+            }
+        }
+        else if (opcodeMode)
+        {
+            switch (arg[0])
+            {
+                case 'c':               // ca - Capture wave
+                    *pc++ = FO_CAPTURE;
+                    break;
+
+                case 'e':               // en - End program
+                                        // ep - Set source end position
+                    if (arg[1] == 'p')
+                    {
+                        PUSH_OP_ARG(FO_SET_END);
+                    }
+                    else
+                    {
+                        opcodeMode = 0;
+                        faun_program(program, pc - program);
+                    }
+                    break;
+
+                case 'f':
+                    switch (arg[1])
+                    {
+                        case 'i':       // fi - Fade In
+                            *pc++ = FO_FADE_IN;
+                            break;
+                        default:
+                        case 'o':       // fo - Fade Out
+                            *pc++ = FO_FADE_OUT;
+                            break;
+                        case 'p':       // fp - Fade Period
+                            PUSH_OP_ARG(FO_SET_FADE);
+                            break;
+                        /*
+                        case 'y':       // fy - Fade Yes
+                            *pc++ = FO_FADE_ON;
+                            break;
+                        case 'n':       // fn - Fade No
+                            *pc++ = FO_FADE_OFF;
+                            break;
+                        */
+                    }
+                    break;
+
+                case 'l':               // ly - Loop Yes
+                                        // ln - Loop No
+                    *pc++ = (arg[1] == 'n') ? FO_LOOP_OFF : FO_LOOP_ON;
+                    break;
+
+                case 'p':               // pl - Play stream loop
+                                        // po - Play source once
+                    if (arg[1] == 'l')
+                        *pc++ = FO_PLAY_LOOP;
+                    else {
+                        PUSH_OP_ARG(FO_PLAY_ONCE);
+                    }
+                    break;
+
+                case 'q':
+                    switch (arg[1])
+                    {
+                        case 'd':       // qd - Queue buffer & signal done
+                            ch = FO_QUEUE_DONE;
+                            break;
+
+                        case 'f':       // qf - Queue buffer & fade
+                            ch = FO_QUEUE_FADE;
+                            break;
+
+                        case 'F':       // qF - Queue buffer, fade, & done
+                            ch = FO_QUEUE_FADE_DONE;
+                            break;
+
+                        default:
+                        case 'u':       // qu - Queue buffer
+                            ch = FO_QUEUE;
+                            break;
+                    }
+                    PUSH_OP_ARG(ch);
+                    break;
+
+                case 's':               // so - Set Source
+                    PUSH_OP_ARG(FO_SOURCE);
+                    break;
+
+                case 'v':               // vo - Volume
+                    PUSH_OP_ARG(FO_SET_VOL);
+                    break;
+
+                case 'w':               // wa - Wait 1/10 sec.
+                    PUSH_OP_ARG(FO_WAIT);
+                    break;
+
+                default:
+                    printf("Invalid program opcode %s\n", arg);
+                    break;
             }
         }
         else if (arg[0] == '/')
