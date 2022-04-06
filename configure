@@ -5,12 +5,14 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   echo "  -h, --help        Display this help and exit"
   echo "  --no_flac         Exclude FLAC decoder"
   echo "  --static          Build static library (default is shared)"
+  echo "  --test            Build faun_test program (modifies library)"
   echo "  --prefix <dir>    Set install directory root"
   exit
 fi
 
 FLAC=1
 STATIC=0
+TEST=0
 PREFIX=/usr/local
 
 while [ "$1" != "" ]; do
@@ -19,6 +21,8 @@ while [ "$1" != "" ]; do
       FLAC=0 ;;
     --static)
       STATIC=1 ;;
+    --test)
+      TEST=1 ;;
     --prefix)
       shift
       PREFIX=$1 ;;
@@ -35,6 +39,6 @@ logic() {
 }
 
 echo "Generating make.config & project.config"
-printf "flac: $(logic ${FLAC})\nstatic: $(logic ${STATIC})\n" >project.config
-printf "FLAC=${FLAC}\nSTATIC=${STATIC}\nDESTDIR=${PREFIX}\n" >make.config
+printf "flac: $(logic ${FLAC})\nstatic: $(logic ${STATIC})\nftest: $(logic ${TEST})\n" >project.config
+printf "FLAC=${FLAC}\nSTATIC=${STATIC}\nFTEST=${TEST}\nDESTDIR=${PREFIX}\n" >make.config
 echo "Now type make (or copr) to build."

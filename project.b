@@ -1,11 +1,13 @@
 options [
     flac:   true    "Use foxenflac loader (GPL)"
     static: false   "Build static library"
+    ftest:  false   "Build faun_test program (modifies library)"
 ]
 
 libfaun: [
-    cflags "-DCAPTURE -DUSE_SFX_GEN"
-    if flac [cflags "-DUSE_FLAC"]
+    cflags "-DUSE_SFX_GEN"
+    if flac  [cflags "-DUSE_FLAC"]
+    if ftest [cflags "-DCAPTURE"]
     include_from %support
     if msvc [include_from %../usr/include]
     sources [
@@ -40,16 +42,14 @@ either static [
     faun-link: does flink
 ]
 
-exe %faun_test [
-    console
-    sources [%faun_test.c]
-    faun-link
+if ftest [
+    exe %faun_test [
+        console faun-link sources [%faun_test.c]
+    ]
 ]
 
 exe %basic [
-    console
-    sources [%example/basic.c]
-    faun-link
+    console faun-link sources [%example/basic.c]
 ]
 
 dist [

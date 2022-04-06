@@ -9,7 +9,7 @@ endif
 CFLAGS=-O3 -DNDEBUG
 #CFLAGS=-g -DDEBUG
 
-OPT=-DCAPTURE -DUSE_SFX_GEN
+OPT=-DUSE_SFX_GEN
 ifeq ($(FLAC),1)
 	OPT+=-DUSE_FLAC
 endif
@@ -38,7 +38,12 @@ endif
 
 .PHONY: all install clean
 
-all: $(FAUN_LIB) faun_test basic
+ifeq ($(FTEST),1)
+OPT+=-DCAPTURE
+all: $(FAUN_LIB) basic faun_test
+else
+all: $(FAUN_LIB) basic
+endif
 
 obj:
 	mkdir obj
