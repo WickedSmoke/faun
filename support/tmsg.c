@@ -26,7 +26,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "tmsg.h"
 
 #if __STDC_VERSION__ < 201112L || defined(__STDC_NO_ATOMICS__)
 #define _Atomic
@@ -44,7 +43,8 @@
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT    0x0403
 #endif
-#include <windows.h>
+//#include <windows.h>
+#include "tmsg.h"   // Includes windows.h.
 
 typedef HANDLE  Semaphore;
 typedef CRITICAL_SECTION    pthread_mutex_t;
@@ -81,6 +81,7 @@ typedef dispatch_semaphore_t Semaphore;
 #include <errno.h>
 #include <semaphore.h>
 typedef sem_t Semaphore;
+typedef struct timespec MsgTime;
 #define semaphoreDestroy(sema)  sem_destroy(&sema)
 #define semaphorePost(sema)     sem_post(&sema)
 #endif
@@ -125,7 +126,7 @@ static inline int semaphoreWait(Semaphore* sema)
 #endif
 }
 
-#ifndef __linux__
+#ifdef TMSG_WAIT_MS
 /*
  * Return 0 if semaphore was locked, 1 on timeout, or -1 on error.
  */
@@ -263,7 +264,7 @@ int tmsg_pop(struct MsgPort* mp, void* msg)
     return 0;
 }
 
-#ifndef __linux__
+#ifdef TMSG_WAIT_MS
 int tmsg_pushTimeout(struct MsgPort* mp, const void* msg, int msec)
 {
     int r = semaphoreTimedWait(&mp->writer, msec);
@@ -303,8 +304,16 @@ int tmsg_popTimeout(struct MsgPort* mp, void* msg, int msec)
 /*
  * Set timespec to a given number of milliseconds ahead of the current time.
  */
-void tmsg_setTimespec(struct timespec* ts, int msec)
+void tmsg_setTimespec(MsgTime* ts, int msec)
 {
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+
+    ts->part.low  = ft.dwLowDateTime;
+    ts->part.high = ft.dwHighDateTime;
+    ts->quad += msec * 10000;
+#else
     clock_gettime(CLOCK_REALTIME, ts);
 
 #if 1
@@ -320,13 +329,34 @@ void tmsg_setTimespec(struct timespec* ts, int msec)
         ts->tv_nsec -= 1000000000;
         ts->tv_sec  += 1;
     }
+#endif
 }
 
 /*
  * Return 0 if a message arrived, 1 on timeout, or -1 on error.
  */
-int tmsg_popTimespec(struct MsgPort* mp, void* msg, struct timespec* ts)
+int tmsg_popTimespec(struct MsgPort* mp, void* msg, MsgTime* ts)
 {
+#ifdef _WIN32
+    FILETIME ft;
+    MsgTime now;
+    DWORD timeout;
+    DWORD r;
+
+    GetSystemTimeAsFileTime(&ft);
+    now.part.low  = ft.dwLowDateTime;
+    now.part.high = ft.dwHighDateTime;
+    if (ts->quad > now.quad)
+        timeout = (DWORD) ((ts->quad - now.quad) / 10000);
+    else
+        timeout = 0;
+
+    r = WaitForSingleObjectEx(mp->reader, timeout, TRUE);
+    if (r == WAIT_TIMEOUT)
+        return 1;
+    if (r != WAIT_OBJECT_0)
+        return -1;
+#else
     int r;
 
     r = sem_timedwait(&mp->reader, ts);
@@ -334,6 +364,7 @@ int tmsg_popTimespec(struct MsgPort* mp, void* msg, struct timespec* ts)
         r = sem_timedwait(&mp->reader, ts);
     if (r < 0)
         return (errno == ETIMEDOUT) ? 1 : r;
+#endif
 
     mutexLock(mp->mutex);
     memcpy(msg, mp->buf + mp->tail * mp->msize, mp->msize);
