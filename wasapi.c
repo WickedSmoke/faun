@@ -185,22 +185,23 @@ static const char* sysaudio_write(FaunVoice* voice, const void* data,
     UINT32 padding;
     UINT32 framesAvail;
     UINT32 flen = len / waSession.format.nBlockAlign;
-    int wait = 0;
+    DWORD ms;
     (void) voice;
 
 
-    do {
-        if (wait)
-            Sleep(2);
-        else
-            ++wait;
-
+    while (1) {
         hr = IAudioClient_GetCurrentPadding(waSession.client, &padding);
         if (FAILED(hr))
             return waError("GetCurrentPadding failed", hr);
 
         framesAvail = waSession.rbufSize - padding;
-    } while (framesAvail < flen);
+        if (framesAvail >= flen)
+            break;
+
+        ms = (flen - framesAvail) * 1000 / voice->mix.rate;
+        //printf("  Sleep(%ld)\n", ms);
+        Sleep(ms);
+    }
 
     hr = IAudioRenderClient_GetBuffer(waSession.render, flen, &rbuf);
     if (FAILED(hr))

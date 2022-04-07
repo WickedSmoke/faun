@@ -289,8 +289,8 @@ enum ReadOggStatus {
     RSTAT_DATA  = 4
 };
 
-#define UPDATE_HZ   30
-#define SLEEP_MS    (1000/UPDATE_HZ-1)
+#define UPDATE_HZ   45
+#define SLEEP_MS    (1000/UPDATE_HZ - 2)
 #define BUFFER_MAX  256
 #define SOURCE_MAX  32
 #define STREAM_MAX  6
