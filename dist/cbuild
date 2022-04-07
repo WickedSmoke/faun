@@ -18,16 +18,21 @@ windows)
   mkdir faun
   cd faun
   tar xf /tmp/project.tar.gz
-  copr -t mingw
+  copr -t mingw static:true
 ' >$HDIR/${SCRIPT}
 
-    mkdir -p ${ARC_DIR}
+    #LIB_NAME=libfaun.dll
+    #ARC_NAME=faun-x86_64-w64-mingw32-dynamic-0.1.0.zip
+    LIB_NAME=libfaun.a
+    ARC_NAME=faun-x86_64-w64-mingw32-static-0.1.0.zip
+
+    mkdir -p ${ARC_DIR}/lib
     podman run -d -it --name=$ID xu4/f33-mingw:1.1 /bin/bash || exit
     podman cp project.tar.gz $ID:$CDIR
     podman cp $HDIR/${SCRIPT} $ID:$CDIR/${SCRIPT}
     podman exec -it -u build $ID /bin/bash $CDIR/${SCRIPT}
-    podman cp $ID:/home/build/faun/libfaun.dll ${ARC_DIR} || exit
-    podman cp $ID:/home/build/faun/faun_test.exe ${ARC_DIR}
+    podman cp $ID:/home/build/faun/${LIB_NAME} ${ARC_DIR}/lib || exit
+    #podman cp $ID:/home/build/faun/faun_test.exe ${ARC_DIR}
 
     # Build archive.
     if [ "$2" != "-b" ]; then
@@ -35,7 +40,8 @@ windows)
         cp faun.h ${ARC_DIR}/include
         FN=`readlink -f vorbis-dll.tar.bz2`
         tar xf $FN -C ${ARC_DIR}
-        cd ${ARC_DIR%/*}; zip -r faun-x86_64-w64-mingw32-dynamic-0.1.0.zip ${ARC_DIR##*/}
+       #cd ${ARC_DIR%/*}; zip -r ${ARC_NAME} ${ARC_DIR##*/}
+        cd ${ARC_DIR}; zip -r ../${ARC_NAME} *
     fi
     ;;
 
