@@ -1563,7 +1563,7 @@ static void faun_command2(int op, int select)
 
 
   \enum FaunCommand
-  Commands used for faun_command() & faun_commandSeq().
+  Commands used for faun_control().
 
   \var FaunCommand::FC_START
   Start playing from the beginning of the source buffer or stream.
