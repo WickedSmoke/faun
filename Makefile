@@ -25,7 +25,7 @@ else
 LIB_DIR=$(DESTDIR)/lib
 endif
 
-DEP_LIB = -lpulse-simple -lpulse -lvorbis -lvorbisfile -lpthread -lm
+DEP_LIB = -lpulse-simple -lpulse -lvorbisfile -lpthread -lm
 
 ifdef STATIC_LIB
 FAUN_LIB=libfaun.a

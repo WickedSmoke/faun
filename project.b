@@ -17,11 +17,11 @@ libfaun: [
 ]
 
 faun-dep: [
-    linux [libs [%pulse-simple %pulse %vorbis %vorbisfile %pthread %m]]
+    linux [libs [%pulse-simple %pulse %vorbisfile %pthread %m]]
     win32 [
         either msvc
-            [libs_from %../usr/lib [%vorbis %vorbisfile %ogg]]
-            [libs [%vorbis %vorbisfile]]
+            [libs_from %../usr/lib [%vorbisfile]]
+            [libs [%vorbisfile]]
        ;libs [%dsound %dxguid %uuid %user32]
         libs [%ole32 %user32]
     ]
