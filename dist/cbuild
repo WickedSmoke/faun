@@ -40,7 +40,7 @@ windows)
     LIB_NAME=libfaun.a
     ARC_NAME=faun-x86_64-w64-mingw32-static-0.1.0.zip
 
-    container_build xu4/f33-mingw:1.1
+    container_build xu4/f33-mingw
     podman cp $ID:/home/build/faun/${LIB_NAME} ${ARC_DIR}/lib || exit
     #podman cp $ID:/home/build/faun/faun_test.exe ${ARC_DIR}
 
@@ -65,7 +65,7 @@ linux)
     LIB_NAME=libfaun.a
     ARC_NAME=faun-x86_64-static-0.1.0.tar.bz2
 
-    container_build xu4/f33-gcc:1.1
+    container_build xu4/f33-gcc
     podman cp $ID:/home/build/faun/${LIB_NAME} ${ARC_DIR}/lib || exit
 
     # Build archive.
