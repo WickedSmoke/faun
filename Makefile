@@ -36,7 +36,7 @@ FAUN_SO=libfaun.so.0
 DEP_STATIC=
 endif
 
-.PHONY: all install clean
+.PHONY: all install clean sdks
 
 ifeq ($(FTEST),1)
 OPT+=-DCAPTURE
@@ -84,3 +84,9 @@ endif
 
 clean:
 	@rm -rf obj libfaun.* faun_test basic
+
+sdks:
+	@rm -f project.tar.gz
+	copr -c
+	dist/cbuild windows
+	dist/cbuild linux
