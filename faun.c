@@ -1902,8 +1902,10 @@ void faun_setParameter(int si, int count, uint8_t param, float value)
   \param file     Path to audio file.
   \param offset   Byte offset to the start of data in the file.
   \param size     Bytes to read from file. Pass zero to read to the file end.
+
+  \return Duration in seconds or zero upon failure.
 */
-void faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
+float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
 {
     if( _audioUp && bi < _bufferLimit )
     {
@@ -1918,8 +1920,11 @@ void faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
             cmd[1] = bi;
             memcpy(cmd+2, &buf, 16);
             tmsg_push(_voice.cmd, cmd);
+
+            return (float) buf.used / (float) buf.rate;
         }
     }
+    return 0.0f;
 }
 
 
@@ -1933,6 +1938,12 @@ void faun_freeBuffers(int bi, int count)
 {
     if( _audioUp ) {
         CommandA cmd;
+
+        if (bi + count > _bufferLimit)
+            count = _bufferLimit - bi;
+        if (count < 1)
+            return;
+
         cmd.op     = CMD_BUFFERS_FREE;
         cmd.select = bi;
         cmd.ext    = count;

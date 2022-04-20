@@ -69,9 +69,9 @@ void faun_control(int si, int count, int command);
 //void faun_controlSeq(int si, int count, const uint8_t* commands);
 void faun_setParameter(int si, int count, uint8_t param, float value);
 
-void faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
-void faun_freeBuffers(int bi, int count);
-void faun_playSource(int si, int bi, int mode);
+float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
+void  faun_freeBuffers(int bi, int count);
+void  faun_playSource(int si, int bi, int mode);
 
 void faun_playStream(int si, const char* file, uint32_t offset,
                      uint32_t size, int mode);
