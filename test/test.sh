@@ -53,6 +53,38 @@ capture() {
     pass
 }
 
+# 1:test-id 2:name 3:args
+listen() {
+    if filtered $1 $(funcname); then return 0; fi
+    if [ -n "$PRINT_CMD" ]; then
+        echo "Test $1: $PROG $3"
+        return 0
+    fi
+    announce $1 $(funcname) `basename "$2"`
+
+    if [ -n "$VALGRIND_CMD" ]; then
+        valgrind --leak-check=full $PROG $3 >/tmp/$2.vg 2>&1
+		ES=$?
+		if [[ $ES -ne 0 ]]; then
+			fail valgrind
+			return 1
+		fi
+		if [ -z "$KEEP_OUTPUT" ]; then
+			rm /tmp/$2.vg
+		fi
+		pass
+        return 0
+    fi
+
+    $PROG $3
+    ES=$?
+    if [[ $ES -ne 0 ]]; then
+        fail "$PROG $ES"
+        return 1
+    fi
+    pass
+}
+
 # Audio Files
 ST_TO=data/townes.ogg
 ST_LB=data/voice-lb.ogg
@@ -65,12 +97,12 @@ SO_L=data/thx-lfreq.flac
 
 capture  1 t01-so "-b0 $SO_G -b1 $SO_E -o ca so0 qd0 wa20 so1 po1 wa20 po1 en -W"
 capture  2 t02-st-fade "-m8 500 $ST_TO -o ca so8 pl wa40 fo en -W"
-capture  3 t03-st-segment "-m8 0 $ST_LB -s 1 0.0 2.856054 /4 -s 1 19.882448 3.297234 /4 -s 1 19.882448 3.297234 /4 -s 401 0.0 2.856054 -W"
+listen   3 t03-st-segment "-m8 0 $ST_LB -s 1 0.0 2.856054 /4 -s 1 19.882448 3.297234 /4 -s 1 19.882448 3.297234 /4 -s 401 0.0 2.856054 -W"
 capture  4 t04-so-sfx  "-b0 $SO_R -o ca so0 qd0 en -W"
 capture  5 t05-so-flac "-b0 $SO_F -o ca so0 qd0 en -W"
 capture  6 t06-so-end  "-b0 $SO_L -o ca so0 qd0 ep30 en -W"
-capture  7 t07-st-restart "-m8 1 $ST_TO  /3 -m8 401 $SO_G -a8 end 2.0 -W"
-capture  8 t08-suspend "-m8 401 $ST_TO -a8 end 6.0 /3 -z /4 -z -W"
+listen   7 t07-st-restart "-m8 1 $ST_TO /3 -m8 401 $SO_G -a8 end 2.0 -W"
+listen   8 t08-suspend "-m8 401 $ST_TO -a8 end 6.0 /3 -z /4 -z -W"
 capture  9 t09-queue   "-b0 $SO_E -b1 $SO_F -b2 $SO_R -o ca so0 qd0 qu1 qu2 en -W"
 capture 10 t10-so-fade "-b0 $SO_F -o ca so0 qF0 en -W"
 capture 11 t11-so-vol  "-b0 $SO_F -a0 vol 0.1 -o ca so0 qd0 qu0 wa20 vo128 wa20 vo255 wa20 vo51 en -W"
