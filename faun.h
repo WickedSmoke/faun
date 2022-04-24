@@ -45,17 +45,18 @@ enum FaunOpcode {
     FO_LOOP_OFF,
     FO_FADE_IN,
     FO_FADE_OUT,
+    FO_SIGNAL,
     FO_CAPTURE,
     FO_COUNT
 };
 
 enum FaunPlayMode {
     FAUN_PLAY_ONCE      = 0x0001,
-    FAUN_PLAY_LOOP      = 0x0080,
-    FAUN_PLAY_FADE_IN   = 0x0100,
-    FAUN_PLAY_FADE_OUT  = 0x0200,
-    FAUN_SIGNAL_DONE    = 0x0400,
-    FAUN_SIGNAL_BUFFER  = 0x0800,
+    FAUN_PLAY_LOOP      = 0x0002,
+    FAUN_PLAY_FADE_IN   = 0x0010,
+    FAUN_PLAY_FADE_OUT  = 0x0020,
+    FAUN_SIGNAL_DONE    = 0x0040,
+    FAUN_SIGNAL_PROG    = 0x0080,
     FAUN_PLAY_FADE      = FAUN_PLAY_FADE_IN | FAUN_PLAY_FADE_OUT
 };
 

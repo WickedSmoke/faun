@@ -170,8 +170,6 @@ FaunSource;
 static const uint8_t faun_formatSize[FAUN_FORMAT_COUNT] = { 1, 2, 3, 4 };
 static FILE* _errStream;
 
-static void signalDone(const FaunSource*);
-
 
 static void faun_sourceInit(FaunSource* src, int serial)
 {
@@ -857,6 +855,23 @@ static void stream_stop(StreamOV* st)
 }
 
 
+static void signalDone(const FaunSource* src)
+{
+    FaunSignal sig;
+
+    sig.id = SOURCE_ID(src);
+    sig.signal = FAUN_SIGNAL_DONE;
+    //printf("signalDone %x\n", sig.id);
+
+    tmsg_push(_voice.sig, &sig);
+
+#ifdef CAPTURE
+    if (endOnSignal)
+        endCapture = 1;
+#endif
+}
+
+
 #define FADE_DELTA(period)  ((1.0f / UPDATE_HZ) / period * src->volume)
 #define GAIN_SILENCE_THRESHOLD  0.001f
 
@@ -1296,6 +1311,15 @@ playSrc:
                 source_fadeOut(src);
                 break;
 
+            case FO_SIGNAL:
+            {
+                FaunSignal sig;
+                sig.id = prog->si;
+                sig.signal = FAUN_SIGNAL_DONE;
+                tmsg_push(_voice.sig, &sig);
+            }
+                break;
+
             case FO_CAPTURE:
 #ifdef CAPTURE
             {
@@ -1683,23 +1707,6 @@ cleanup:
 }
 
 
-static void signalDone(const FaunSource* src)
-{
-    FaunSignal sig;
-
-    sig.id = SOURCE_ID(src);
-    sig.signal = FAUN_SIGNAL_DONE;
-    //printf("signalDone %x\n", sig.id);
-
-    tmsg_push(_voice.sig, &sig);
-
-#ifdef CAPTURE
-    if (endOnSignal)
-        endCapture = 1;
-#endif
-}
-
-
 // Private testing function.
 void faun_closeOnSignal()
 {
@@ -1817,7 +1824,7 @@ static void faun_command2(int op, int select)
   This is the index of the source or stream generating the signal.
 
   \var FaunSignal::signal
-  This is the FaunPlayMode event (FAUN_SIGNAL_DONE, FAUN_SIGNAL_BUFFER)
+  This is the FaunPlayMode event (FAUN_SIGNAL_DONE, FAUN_SIGNAL_PROG)
   which occurred.
 */
 
