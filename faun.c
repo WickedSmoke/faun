@@ -100,6 +100,9 @@ enum FaunCmd {
     CMD_SUSPEND,
     CMD_RESUME,
     CMD_PROGRAM,
+    CMD_PROGRAM_END,
+    CMD_PROGRAM_MID,
+    CMD_PROGRAM_BEG,
     CMD_SET_BUFFER,
     CMD_BUFFERS_FREE,
     CMD_PLAY_SOURCE,
@@ -122,12 +125,14 @@ enum FaunCmd {
 #define MSG_SIZE    20
 #define SIG_SIZE    2
 #define PROG_MAX    32
+#define PROG_CHEAD  3
 
 typedef struct {
     uint8_t code[PROG_MAX];
     int pc;
     int used;
-    int si;
+    uint16_t running;
+    uint16_t si;
     uint32_t waitPos;
 }
 FaunProgram;
@@ -920,7 +925,7 @@ static void cmd_playSource(int si, uint32_t bufIds, int mode)
     FaunBuffer* buf = _abuffer + (bufIds & BID_PACKED);
     uint32_t ftotal;
 
-    //printf("CMD source play %d buf:%x mode:%d\n", si, bufIds, mode);
+    //printf("CMD source play %d buf:%x mode:%x\n", si, bufIds, mode);
     faun_setBuffer(src, buf);
     ftotal = buf->used;
     for (bufIds >>= 10; bufIds; bufIds >>= 10) {
@@ -1192,6 +1197,7 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
 
             case FO_END:
                 prog->pc = prog->used = 0;
+                prog->running = 0;
                 return;
 
             case FO_WAIT:
@@ -1208,31 +1214,21 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                     faun_queueBuffer(_asource + prog->si, _abuffer + (*pc++));
                 break;
 
-            case FO_QUEUE_DONE:
-                i = FAUN_PLAY_ONCE | FAUN_SIGNAL_DONE;
-playSrc:
+            case FO_PLAY_BUF:
+                i = *pc++;
+            {
+                int mode = *pc++;
                 if (prog->si < _sourceLimit)
-                    cmd_playSource(prog->si, *pc++, i);
+                    cmd_playSource(prog->si, i, mode);
+            }
                 break;
 
-            case FO_QUEUE_FADE:
-                i = FAUN_PLAY_ONCE | FAUN_PLAY_FADE;
-                goto playSrc;
-
-            case FO_QUEUE_FADE_DONE:
-                i = FAUN_PLAY_ONCE | FAUN_PLAY_FADE | FAUN_SIGNAL_DONE;
-                goto playSrc;
-                break;
-
-            case FO_PLAY_ONCE:
-                if (prog->si < _sourceLimit)
-                    cmd_playSource(prog->si, *pc++, FAUN_PLAY_ONCE);
-                break;
-
-            case FO_PLAY_LOOP:
+            case FO_STREAM_ONCE:
+            case FO_STREAM_LOOP:
                 if (prog->si >= _sourceLimit) {
                     StreamOV* st = _stream + (prog->si - _sourceLimit);
-                    st->source.mode |= FAUN_PLAY_LOOP;
+                    if (pc[-1] == FO_STREAM_LOOP)
+                        st->source.mode |= FAUN_PLAY_LOOP;
                     stream_start(st);
                 }
                 break;
@@ -1386,7 +1382,8 @@ static void* audioThread(void* arg)
     input     = (const float**) (mixSource + n);
     inputGain = (float*) (input + n);
 
-    prog.pc = prog.used = prog.si = 0;
+    prog.pc = prog.used = 0;
+    prog.si = prog.running = 0;
     prog.waitPos = 0;
 
     tmsg_setTimespec(&ts, sleepTime);
@@ -1426,14 +1423,30 @@ static void* audioThread(void* arg)
                     break;
 
                 case CMD_PROGRAM:
+                    prog.used = 0;
+                    // Fall through...
+
+                case CMD_PROGRAM_END:
+                    prog.running = 1;
+                    // Fall through...
+
+                case CMD_PROGRAM_MID:
+read_prog:
                     n = cmd->select;
-                    if (prog.used + n > PROG_MAX)
+                    //printf("CMD prog %d %d\n", cmd->op, n);
+                    if (prog.used + n > PROG_MAX) {
+                        prog.running = 0;
                         fprintf(_errStream, "Program buffer overflow\n");
-                    else {
-                        memcpy(prog.code + prog.used, cmdBuf + 2, n);
+                    } else {
+                        memcpy(prog.code + prog.used, cmdBuf + PROG_CHEAD, n);
                         prog.used += n;
                     }
                     break;
+
+                case CMD_PROGRAM_BEG:
+                    prog.used = 0;
+                    prog.running = 0;
+                    goto read_prog;
 
                 case CMD_SET_BUFFER:
                     //printf("CMD set buffer bi:%d cmdPart:%d\n",
@@ -1554,7 +1567,7 @@ static void* audioThread(void* arg)
         if (sleepTime < 0)
             continue;
 
-        if (prog.used)
+        if (prog.running)
             faun_evalProg(&prog, totalMixed);
 
         COUNTER(t);
@@ -2098,18 +2111,23 @@ void faun_program(const uint8_t* bytecode, int len)
     if( _audioUp )
     {
         uint8_t cmd[MSG_SIZE];
+        const int payloadMax = MSG_SIZE - PROG_CHEAD;
         int clen;
 
-        cmd[0] = CMD_PROGRAM;
+        cmd[0] = (len > payloadMax) ? CMD_PROGRAM_BEG : CMD_PROGRAM;
+        cmd[2] = 0;     // Reserved for Execution Unit Id
 
         while (len > 0)
         {
-            clen = (len > (MSG_SIZE-2)) ? MSG_SIZE-2 : len;
+            clen = (len > payloadMax) ? payloadMax : len;
             len -= clen;
+
             cmd[1] = clen;
-            memcpy(cmd+2, bytecode, clen);
+            memcpy(cmd + PROG_CHEAD, bytecode, clen);
             bytecode += clen;
             tmsg_push(_voice.cmd, &cmd);
+
+            cmd[0] = (len > payloadMax) ? CMD_PROGRAM_MID : CMD_PROGRAM_END;
         }
     }
 }

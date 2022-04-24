@@ -95,18 +95,19 @@ SO_R=data/si_blink.rfx
 SO_L=data/thx-lfreq.flac
 
 
-capture  1 t01-so "-b0 $SO_G -b1 $SO_E -o ca so0 qd0 wa20 so1 po1 wa20 po1 en -W"
+capture  1 t01-so "-b0 $SO_G -b1 $SO_E -o ca so0 pb0 41 wa20 so1 pb1 1 wa20 pb1
+1 en -W"
 capture  2 t02-st-fade "-m8 50 $ST_TO -o ca so8 pl wa40 fo en -W"
 listen   3 t03-st-segment "-m8 0 $ST_LB -s 1 0.0 2.856054 /4 -s 1 19.882448 3.297234 /4 -s 1 19.882448 3.297234 /4 -s 41 0.0 2.856054 -W"
-capture  4 t04-so-sfx  "-b0 $SO_R -o ca so0 qd0 en -W"
-capture  5 t05-so-flac "-b0 $SO_F -o ca so0 qd0 en -W"
-capture  6 t06-so-end  "-b0 $SO_L -o ca so0 qd0 ep30 en -W"
+capture  4 t04-so-sfx  "-b0 $SO_R -o ca so0 pb0 41 en -W"
+capture  5 t05-so-flac "-b0 $SO_F -o ca so0 pb0 41 en -W"
+capture  6 t06-so-end  "-b0 $SO_L -o ca so0 pb0 41 ep30 en -W"
 listen   7 t07-st-restart "-m8 1 $ST_TO /3 -m8 41 $SO_G -a8 end 2.0 -W"
 listen   8 t08-suspend "-m8 41 $ST_TO -a8 end 6.0 /3 -z /4 -z -W"
-capture  9 t09-queue   "-b0 $SO_E -b1 $SO_F -b2 $SO_R -o ca so0 qd0 qu1 qu2 en -W"
-capture 10 t10-so-fade "-b0 $SO_F -o ca so0 qF0 en -W"
-capture 11 t11-so-vol  "-b0 $SO_F -a0 vol 0.1 -o ca so0 qd0 qu0 wa20 vo128 wa20 vo255 wa20 vo51 en -W"
+capture  9 t09-queue   "-b0 $SO_E -b1 $SO_F -b2 $SO_R -o ca so0 pb0 41 qu1 qu2 en -W"
+capture 10 t10-so-fade "-b0 $SO_F -o ca so0 pb0 71 en -W"
+capture 11 t11-so-vol  "-b0 $SO_F -a0 vol 0.1 -o ca so0 pb0 41 qu0 wa20 vo128 wa20 vo255 wa20 vo51 en -W"
 capture 12 t12-st-vol  "-m8 40 $ST_TO -o ca so8 pl wa20 vo128 wa20 vo255 wa20 vo51 fo en -W"
-capture 13 t13-so-loop "-b0 $SO_E -o ca so0 qd0 ly wa10 fo en -W"
+capture 13 t13-so-loop "-b0 $SO_E -o ca so0 pb0 41 ly wa10 fo en -W"
 
 report

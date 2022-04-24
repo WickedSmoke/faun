@@ -165,6 +165,7 @@ int main(int argc, char** argv)
                     }
                     else
                     {
+                        *pc++ = FO_END;
                         opcodeMode = 0;
                         faun_program(program, pc - program);
                     }
@@ -200,35 +201,21 @@ int main(int argc, char** argv)
                     break;
 
                 case 'p':               // pl - Play stream loop
-                                        // po - Play source once
+                                        // po - Play stream once
+                                        // pb - Play buffer & set mode
                     if (arg[1] == 'l')
-                        *pc++ = FO_PLAY_LOOP;
+                        *pc++ = FO_STREAM_LOOP;
+                    else if (arg[1] == 'o')
+                        *pc++ = FO_STREAM_ONCE;
                     else {
-                        PUSH_OP_ARG(FO_PLAY_ONCE);
+                        PUSH_OP_ARG(FO_PLAY_BUF);
+                        INC_ARG;
+                        *pc++ = hex(argv[i]);
                     }
                     break;
 
-                case 'q':
-                    switch (arg[1])
-                    {
-                        case 'd':       // qd - Queue buffer & signal done
-                            ch = FO_QUEUE_DONE;
-                            break;
-
-                        case 'f':       // qf - Queue buffer & fade
-                            ch = FO_QUEUE_FADE;
-                            break;
-
-                        case 'F':       // qF - Queue buffer, fade, & done
-                            ch = FO_QUEUE_FADE_DONE;
-                            break;
-
-                        default:
-                        case 'u':       // qu - Queue buffer
-                            ch = FO_QUEUE;
-                            break;
-                    }
-                    PUSH_OP_ARG(ch);
+                case 'q':               // qu - Queue buffer
+                    PUSH_OP_ARG(FO_QUEUE);
                     break;
 
                 case 's':               // so - Set Source

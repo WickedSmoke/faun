@@ -32,11 +32,9 @@ enum FaunOpcode {
     FO_WAIT,            // 1/10 second units
     FO_SOURCE,          // Source #
     FO_QUEUE,           // Buffer #
-    FO_QUEUE_DONE,      // Buffer #
-    FO_QUEUE_FADE,      // Buffer #
-    FO_QUEUE_FADE_DONE, // Buffer #
-    FO_PLAY_ONCE,       // Buffer #
-    FO_PLAY_LOOP,       // FIXME: Make FO_PLAY_ONCE & FO_PLAY_LOOP consitent!
+    FO_PLAY_BUF,        // Buffer #, mode
+    FO_STREAM_ONCE,
+    FO_STREAM_LOOP,
     FO_SET_VOL,         // Unit value
     FO_SET_PAN,
     FO_SET_FADE,        // 1/10 second units
