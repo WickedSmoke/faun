@@ -52,7 +52,7 @@ int main(int argc, char** argv)
     const char* error;
     const char* arg;
     FaunSignal sig;
-    uint8_t program[32];
+    uint8_t program[FAUN_PROGRAM_MAX];
     uint8_t* pc = program;
     int opcodeMode = 0;
     int i, ch;
@@ -61,7 +61,7 @@ int main(int argc, char** argv)
     uint32_t offset = 0;
     uint32_t size = 0;
 
-    if ((error = faun_startup(16, 8, 2, "Faun Test"))) {
+    if ((error = faun_startup(16, 8, 2, 1, "Faun Test"))) {
         fprintf(stderr, "faun_startup: %s\n", error);
         return 1;
     }
@@ -167,7 +167,7 @@ int main(int argc, char** argv)
                     {
                         *pc++ = FO_END;
                         opcodeMode = 0;
-                        faun_program(program, pc - program);
+                        faun_program(0, program, pc - program);
                     }
                     break;
 

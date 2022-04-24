@@ -17,6 +17,7 @@ Features include:
   - Fading volume in & out.
   - Source playback from a queue of buffers.
   - Signaling when a sound is finished playing.
+  - A bytecode language for running simple playback sequences.
 
 At this time the library does not support:
   - Sample rates other than 44100 & 22050 Hz.
@@ -34,7 +35,7 @@ Example usage:
     int main() {
         FaunSignal sig;
 
-        faun_startup(64, 8, 2, "Faun Test");
+        faun_startup(64, 8, 2, 0, "Faun Test");
 
         // Start some music.
         faun_playStream(8, "path/to/music.ogg", 0, 0,

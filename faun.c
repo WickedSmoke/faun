@@ -124,11 +124,10 @@ enum FaunCmd {
 
 #define MSG_SIZE    20
 #define SIG_SIZE    2
-#define PROG_MAX    32
 #define PROG_CHEAD  3
 
 typedef struct {
-    uint8_t code[PROG_MAX];
+    uint8_t code[FAUN_PROGRAM_MAX];
     int pc;
     int used;
     uint16_t running;
@@ -308,15 +307,18 @@ enum ReadOggStatus {
 #define BUFFER_MAX  256
 #define SOURCE_MAX  32
 #define STREAM_MAX  6
+#define PEXEC_MAX   16
 
 static int _audioUp = AUDIO_DOWN;
 static int _bufferLimit;
 static int _sourceLimit;
 static int _streamLimit;
+static int _pexecLimit;
 static FaunVoice   _voice;
 static FaunBuffer* _abuffer = NULL;
 static FaunSource* _asource = NULL;
 static StreamOV*  _stream = NULL;
+static FaunProgram* _pexec = NULL;
 
 //----------------------------------------------------------------------------
 
@@ -1343,10 +1345,10 @@ static DWORD WINAPI audioThread(LPVOID arg)
 static void* audioThread(void* arg)
 #endif
 {
-    FaunProgram prog;
     FaunVoice* voice = arg;
     FaunSource* src;
     FaunBuffer* buf;
+    FaunProgram* prog;
     StreamOV* st;
     FaunSource** mixSource;
     const float** input;
@@ -1381,10 +1383,6 @@ static void* audioThread(void* arg)
     mixSource = (FaunSource**) malloc(n * sizeof(void*) * 3);
     input     = (const float**) (mixSource + n);
     inputGain = (float*) (input + n);
-
-    prog.pc = prog.used = 0;
-    prog.si = prog.running = 0;
-    prog.waitPos = 0;
 
     tmsg_setTimespec(&ts, sleepTime);
 
@@ -1423,29 +1421,34 @@ static void* audioThread(void* arg)
                     break;
 
                 case CMD_PROGRAM:
-                    prog.used = 0;
-                    // Fall through...
+                    prog = _pexec + cmdBuf[2];
+                    prog->used = 0;
+                    prog->running = 1;
+                    goto read_prog;
 
                 case CMD_PROGRAM_END:
-                    prog.running = 1;
-                    // Fall through...
+                    prog = _pexec + cmdBuf[2];
+                    prog->running = 1;
+                    goto read_prog;
 
                 case CMD_PROGRAM_MID:
+                    prog = _pexec + cmdBuf[2];
 read_prog:
                     n = cmd->select;
-                    //printf("CMD prog %d %d\n", cmd->op, n);
-                    if (prog.used + n > PROG_MAX) {
-                        prog.running = 0;
+                    //printf("CMD prog %d %d len:%d\n", cmdBuf[2], cmd->op, n);
+                    if (prog->used + n > FAUN_PROGRAM_MAX) {
+                        prog->running = 0;
                         fprintf(_errStream, "Program buffer overflow\n");
                     } else {
-                        memcpy(prog.code + prog.used, cmdBuf + PROG_CHEAD, n);
-                        prog.used += n;
+                        memcpy(prog->code + prog->used, cmdBuf + PROG_CHEAD, n);
+                        prog->used += n;
                     }
                     break;
 
                 case CMD_PROGRAM_BEG:
-                    prog.used = 0;
-                    prog.running = 0;
+                    prog = _pexec + cmdBuf[2];
+                    prog->used = 0;
+                    prog->running = 0;
                     goto read_prog;
 
                 case CMD_SET_BUFFER:
@@ -1567,8 +1570,12 @@ read_prog:
         if (sleepTime < 0)
             continue;
 
-        if (prog.running)
-            faun_evalProg(&prog, totalMixed);
+        for (i = 0; i < _pexecLimit; ++i)
+        {
+            prog = _pexec + i;
+            if (prog->running)
+                faun_evalProg(prog, totalMixed);
+        }
 
         COUNTER(t);
 
@@ -1861,12 +1868,13 @@ static int limitU(int val, int max)
   \param bufferLimit    Maximum number of buffers (0-256).
   \param sourceLimit    Maximum number of simultaneously playing sounds (0-32).
   \param streamLimit    Maximum number of simultaneously playing streams (0-6).
+  \param progLimit      Maximum number of program execution units (0-16).
   \param appName        Program identifier for networked audio systems.
 
   \returns Error string or NULL if successful.
 */
 const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
-                        const char* appName)
+                         int progLimit, const char* appName)
 {
     const char* error;
     int i;
@@ -1881,10 +1889,12 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     _bufferLimit = bufferLimit = limitU(bufferLimit, BUFFER_MAX);
     _sourceLimit = sourceLimit = limitU(sourceLimit, SOURCE_MAX);
     _streamLimit = streamLimit = limitU(streamLimit, STREAM_MAX);
+    _pexecLimit  = progLimit   = limitU(progLimit,   PEXEC_MAX);
 
     i = bufferLimit * sizeof(FaunBuffer) +
         sourceLimit * sizeof(FaunSource) +
-        streamLimit * sizeof(StreamOV);
+        streamLimit * sizeof(StreamOV)   +
+        progLimit   * sizeof(FaunProgram);
     _abuffer = (FaunBuffer*) malloc(i);
     if (! _abuffer) {
         sysaudio_close();
@@ -1899,6 +1909,12 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
         faun_sourceInit(_asource + i, i);
     for (i = 0; i < streamLimit; ++i)
         stream_init(_stream + i, sourceLimit + i);
+
+    if (progLimit) {
+        _pexec = (FaunProgram*) (_stream + _streamLimit);
+        memset(_pexec, 0, progLimit * sizeof(FaunProgram));
+    } else
+        _pexec = NULL;
 
     faun_allocBufferSamples(&_voice.mix, FAUN_F32, FAUN_CHAN_2, 44100,
                             44100 / UPDATE_HZ);
@@ -2099,23 +2115,31 @@ void faun_setParameter(int si, int count, uint8_t param, float value)
 
 
 /**
-  Execute Faun program.
+  Execute Faun program
 
-  The bytecode program must be terminated by FO_END.
+  This can be used to sequence the playback of multiple sources and streams.
 
+  Any currently running program on the execution unit will be halted and
+  replaced.
+
+  \param exec       Execution unit index.
   \param bytecode   FuanOpcode instructions and data.
-  \param len        Byte length of bytecode.
+                    The program must be terminated by FO_END.
+  \param len        Byte length of bytecode.  The maximum len is 48.
 */
-void faun_program(const uint8_t* bytecode, int len)
+void faun_program(int exec, const uint8_t* bytecode, int len)
 {
-    if( _audioUp )
+    if( _audioUp && exec < _pexecLimit )
     {
         uint8_t cmd[MSG_SIZE];
         const int payloadMax = MSG_SIZE - PROG_CHEAD;
         int clen;
 
+        if (len > FAUN_PROGRAM_MAX || bytecode[len - 1] != FO_END)
+            return;
+
         cmd[0] = (len > payloadMax) ? CMD_PROGRAM_BEG : CMD_PROGRAM;
-        cmd[2] = 0;     // Reserved for Execution Unit Id
+        cmd[2] = exec;
 
         while (len > 0)
         {

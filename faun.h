@@ -48,6 +48,8 @@ enum FaunOpcode {
     FO_COUNT
 };
 
+#define FAUN_PROGRAM_MAX    48
+
 enum FaunPlayMode {
     FAUN_PLAY_ONCE      = 0x0001,
     FAUN_PLAY_LOOP      = 0x0002,
@@ -80,7 +82,7 @@ extern "C" {
 #endif
 
 const char* faun_startup(int bufferLimit, int sourceLimit,
-                         int streamLimit, const char* appName);
+                         int streamLimit, int progLimit, const char* appName);
 void faun_shutdown();
 void faun_suspend(int halt);
 void faun_setErrorStream(FILE*);
@@ -88,7 +90,7 @@ int  faun_pollSignals(FaunSignal* sigbuf, int count);
 void faun_waitSignal(FaunSignal* sigbuf);
 void faun_control(int si, int count, int command);
 void faun_setParameter(int si, int count, uint8_t param, float value);
-void faun_program(const uint8_t* bytecode, int len);
+void faun_program(int ei, const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
 void  faun_freeBuffers(int bi, int count);

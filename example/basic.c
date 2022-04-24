@@ -9,7 +9,7 @@ int main()
     const char* err;
     FaunSignal sig;
 
-    err = faun_startup(32, SRC_LIMIT, 2, "Faun Example");
+    err = faun_startup(32, SRC_LIMIT, 2, 0, "Faun Example");
     if (err) {
         printf("%s\n", err);
         return 1;
