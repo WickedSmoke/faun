@@ -10,7 +10,7 @@ faun-compile: func [blk block!] [
         'wait double!   (appair bc 1 to-int mul 10.0 second tok)
       | 'si int!        (appair bc 2 second tok)
       | 'queue int!     (appair bc 3 second tok)
-      | 'play int! int! (append bc reduce [4 second tok third tok])
+      | 'play int!      (append bc reduce [4 second tok 0x1])
       | 'stream         (append bc 5)
       | 'stream-loop    (append bc 6)
       | 'vol double!    (appair bc 7 to-int mul 255.0 second tok)
@@ -18,6 +18,22 @@ faun-compile: func [blk block!] [
       | 'fade-out       (append bc 14)
       | 'signal         (append bc 15)
       | 'capture        (append bc 16)
+      | path! int! (
+            ppath: first tok
+            if ne? 'play first ppath [error "Expected 'play path!"]
+            mode: either find ppath 'loop 2 1
+            forall ppath [
+                if bit: select [
+                    fade-in  0x10
+                    fade-out 0x20
+                    fade     0x30
+                    sig-done 0x40
+                ] first ppath [
+                    mode: or mode bit
+                ]
+            ]
+            append bc reduce [4 second tok mode]
+        )
     ]]
         [error "Invalid Faun program"]
     append bc 0
