@@ -59,8 +59,12 @@ int endCapture = 0;
 #if 0
 #define REPORT_STREAM(st,msg) \
     printf("FAUN strm %x: %s\n",st->source.serialNo,msg)
+#define REPORT_BUF(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#define REPORT_MIX(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
 #define REPORT_STREAM(st,msg)
+#define REPORT_BUF(msg, ...)
+#define REPORT_MIX(msg, ...)
 #endif
 
 typedef struct {
@@ -803,49 +807,52 @@ static int _readOgg(StreamOV* st, FaunBuffer* buffer)
     if( count > 0 )
     {
         status |= RSTAT_DATA;
-        //printf( "FAUN ogg count %d\n", count );
         st->sampleCount += count;
+        REPORT_BUF("FAUN readOgg buf used: %d (%d)\n", count, st->sampleCount);
         //wav_write(wfp, buffer->sample.f32, count*2);
     }
     return status;
 }
 
 
+static void stream_fillBuffers(StreamOV*);
+
 static void stream_start(StreamOV* st)
 {
-    FaunBuffer* buf;
-    int frameCount, i;
-    int rate = _voice.mix.rate;
+    FaunSource* src = &st->source;
+    FaunBuffer* buf = st->buffers;
+    int i;
 
-    // Size each buffer to hold 1/4 second of data (multiple of 8 samples).
-    frameCount = ((rate / 4) + 7) & ~7;
-
-    faun_sourceResetQueue(&st->source);
-
-    for( i = 0; i < STREAM_BUFFERS; ++i )
+    if (! buf->sample.ptr)
     {
-        buf = st->buffers+i;
+        // Allocate on first use; match attributes of voice mixing buffer.
+        // Size each buffer to hold 1/4 second of data (multiple of 8 samples).
 
-        // Match attributes of voice mixing buffer.
-        if (! buf->sample.ptr)
-            faun_allocBufferSamples(buf, FAUN_F32, FAUN_CHAN_2, rate,
-                                    frameCount);
-
-        if( _readOgg(st, buf) & (RSTAT_ERROR | RSTAT_EOF) )
-        {
-            stream_closeFile(st);
-            break;
-        }
+        int rate = _voice.mix.rate;
+        int frameCount = ((rate / 4) + 7) & ~7;
+        for (i = 0; i < STREAM_BUFFERS; ++i)
+            faun_allocBufferSamples(buf + i, FAUN_F32, FAUN_CHAN_2,
+                                    rate, frameCount);
     }
 
-    if( i == STREAM_BUFFERS )
+    faun_sourceResetQueue(src);
+
+    for (i = 0; i < STREAM_BUFFERS; ++buf, ++i)
     {
-        for( i = 0; i < STREAM_BUFFERS; ++i )
-            faun_queueBuffer(&st->source, st->buffers+i);
-        st->source.state = SS_PLAYING;
-        st->source.playPos =
-        st->source.framesOut = 0;
-        st->feed = 1;
+        buf->used = 0;
+        src->bufferQueue[i] = buf;
+    }
+
+    src->bufUsed = STREAM_BUFFERS;    // Prime faun_processedBuffer().
+    st->feed = 1;
+
+    stream_fillBuffers(st);
+
+    if (st->sampleCount)
+    {
+        src->state = SS_PLAYING;
+        src->playPos =
+        src->framesOut = 0;
         REPORT_STREAM(st,"start");
     }
 }
@@ -1021,21 +1028,34 @@ static void cmd_playStreamPart(int si, double start, double duration, int mode)
 static void stream_fillBuffers(StreamOV* st)
 {
     FaunBuffer* freeBuf;
+    uint32_t excess;
     int status;
 
     while ((freeBuf = faun_processedBuffer(&st->source)))
     {
-        //printf( "   buf %ld\n", freeBuf - st->buffers);
+        REPORT_BUF("KR fillBuffer %ld\n", freeBuf - st->buffers);
 read_again:
         status = _readOgg(st, freeBuf);
         if( status & RSTAT_DATA )
         {
-            faun_queueBuffer(&st->source, freeBuf);
             if (SEGMENT_SET(st) && st->sampleCount >= st->sampleLimit)
             {
-                freeBuf->used -= st->sampleCount - st->sampleLimit;
                 status |= RSTAT_EOF;
+
+                excess = st->sampleCount - st->sampleLimit;
+                REPORT_BUF("    sampleCount: %d sampleLimit: %d\n",
+                           st->sampleCount, st->sampleLimit);
+                if (excess >= freeBuf->used)
+                {
+                    freeBuf->used = 0;
+                    status &= ~RSTAT_DATA;
+                    goto drop_buf;
+                }
+                freeBuf->used -= excess;
             }
+            faun_queueBuffer(&st->source, freeBuf);
+drop_buf:
+            REPORT_BUF("    used: %d\n", freeBuf->used);
         }
 
         if( status & RSTAT_ERROR )
@@ -1045,7 +1065,7 @@ read_again:
         }
         else if( status & RSTAT_EOF )
         {
-            //printf( "KR audioUpdate - end of stream\n" );
+            REPORT_BUF("    end-of-stream\n");
             if (st->source.mode & FAUN_PLAY_LOOP)
             {
                 if (SEGMENT_SET(st))
@@ -1628,13 +1648,13 @@ read_prog:
                         fragmentLen = samplesAvail;
                 }
 
-                //printf("KR     source %d qactive:%d pos:%d\n",
-                //       i, src->qactive, src->playPos);
+                REPORT_MIX("     mix source %d qactive:%d pos:%d\n",
+                           i, src->qactive, src->playPos);
             }
 
             // Mix fragment.
-            //printf("FAUN mix count:%d mixed:%4d/%d frag:%4d\n",
-            //       sourceCount, mixed, mixSampleLen, fragmentLen);
+            REPORT_MIX("FAUN mixBuffers count:%d mixed:%4d/%d frag:%4d\n",
+                       sourceCount, mixed, mixSampleLen, fragmentLen);
             faun_mixBuffers(voice->mix.sample.f32 + mixed*2,
                            input, inputGain, sourceCount, fragmentLen*2);
 

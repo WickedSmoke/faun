@@ -142,6 +142,7 @@ capture 10 t10-so-fade "-b0 $SO_F -o ca so0 pb0 71 en -W"
 capture 11 t11-so-vol  "-b0 $SO_F -a0 vol 0.1 -o ca so0 pb0 41 qu0 wa20 vo128 wa20 vo255 wa20 vo51 en -W"
 capture 12 t12-st-vol  "-m8 40 $ST_TO -o ca so8 pl wa20 vo128 wa20 vo255 wa20 vo51 fo en -W"
 capture 13 t13-so-loop "-b0 $SO_E -o ca so0 pb0 41 ly wa10 fo en -W"
+listen  14 t14-st-short "-m8 0 $ST_LB -s 41 15.377778 0.534 -W"
 
 fcode   30 t30-fc example/fcode01.b
 
