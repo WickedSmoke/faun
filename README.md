@@ -13,6 +13,7 @@ The following audio formats can be played:
   - WAVE
 
 The following operating systems are supported:
+  - Android (via AAudio)
   - Linux (via PulseAudio)
   - Windows (via Windows Audio Session)
 

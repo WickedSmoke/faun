@@ -34,10 +34,11 @@
 #include "internal.h"
 #include "faun.h"
 
-#ifdef __linux__
+#ifdef ANDROID
+#include "sys_aaudio.c"
+#elif defined(__linux__)
 #include "sys_pulseaudio.c"
 #elif defined(_WIN32)
-//#include "sys_dsound.c"
 #include "sys_wasapi.c"
 #else
 #error "Unsupported system"
@@ -45,9 +46,6 @@
 
 #include <vorbis/codec.h>
 #include <vorbis/vorbisfile.h>
-#ifdef __ANDROID__
-#include <glv_asset.h>
-#endif
 
 #ifdef CAPTURE
 #include "wav_write.c"
@@ -68,7 +66,7 @@ int endCapture = 0;
 #endif
 
 typedef struct {
-#ifdef __ANDROID__
+#ifdef GLV_ASSET_H
     struct AssetFile asset;
 #define cfile   asset.fp
 #else
@@ -248,6 +246,17 @@ FaunBuffer* faun_processedBuffer(FaunSource* src)
 }
 
 
+void faun_reserve(FaunBuffer* buf, int frames)
+{
+    if (buf->avail < frames) {
+        buf->sample.ptr = realloc(buf->sample.ptr,
+                                  frames * faun_formatSize[buf->format] *
+                                           faun_channelCount(buf->chanLayout));
+        buf->avail = frames;
+    }
+}
+
+
 static void faun_allocBufferSamples(FaunBuffer* buf, int fmt, int chan,
                                     int rate, int frames)
 {
@@ -306,8 +315,6 @@ enum ReadOggStatus {
     RSTAT_DATA  = 4
 };
 
-#define UPDATE_HZ   45
-#define SLEEP_MS    (1000/UPDATE_HZ - 2)
 #define BUFFER_MAX  256
 #define SOURCE_MAX  32
 #define STREAM_MAX  6
@@ -667,7 +674,7 @@ static void stream_init(StreamOV* st, int id)
     memset(&st->buffers, 0, sizeof(FaunBuffer) * STREAM_BUFFERS);
     st->feed = 0;
 
-#ifdef __ANDROID__
+#ifdef GLV_ASSET_H
     memset(&st->asset, 0, sizeof(struct AssetFile));
 #else
     st->chunk.cfile = NULL;
@@ -886,7 +893,7 @@ static void signalDone(const FaunSource* src)
 }
 
 
-#define FADE_DELTA(period)  ((1.0f / UPDATE_HZ) / period * src->volume)
+#define FADE_DELTA(period)  ((1.0f / _voice.updateHz) / period * src->volume)
 #define GAIN_SILENCE_THRESHOLD  0.001f
 
 static inline void source_fadeOut(FaunSource* src)
@@ -971,7 +978,7 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode)
 
     if (ov_open_callbacks(&st->chunk, &st->vf, NULL, 0, chunkMethods) < 0)
     {
-#ifdef __ANDROID__
+#ifdef GLV_ASSET_H
         glv_assetClose(&st->asset);
 #else
         fclose(st->chunk.cfile);
@@ -1423,11 +1430,12 @@ static void* audioThread(void* arg)
     uint32_t totalMixed = 0;    // Wraps after 27 hours.
     uint32_t fragmentLen;
     uint32_t samplesAvail;
-    uint32_t mixSampleLen = voice->mix.avail;
+    uint32_t mixSampleLen = voice->mix.used;
     int i;
     struct MsgPort* port = voice->cmd;
     MsgTime ts;
-    int sleepTime = SLEEP_MS;
+    int updateMs = 1000/voice->updateHz - 2;
+    int sleepTime = updateMs;
     int n;
 
 #ifdef CPUCOUNTER_H
@@ -1478,7 +1486,7 @@ static void* audioThread(void* arg)
                     break;
 
                 case CMD_RESUME:
-                    sleepTime = SLEEP_MS;
+                    sleepTime = updateMs;
                     sysaudio_startVoice(voice);
                     break;
 
@@ -1951,6 +1959,7 @@ static int limitU(int val, int max)
 const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
                          int progLimit, const char* appName)
 {
+    const int DEF_UPDATE_HZ = 45;
     const char* error;
     int i;
 
@@ -1992,9 +2001,13 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
         _pexec = NULL;
 
     faun_allocBufferSamples(&_voice.mix, FAUN_F32, FAUN_CHAN_2, 44100,
-                            44100 / UPDATE_HZ);
+                            44100 / DEF_UPDATE_HZ);
 
-    if ((error = sysaudio_allocVoice(&_voice, UPDATE_HZ, appName))) {
+    // Set defaults which sysaudio_allocVoice may change.
+    _voice.mix.used = _voice.mix.avail;
+    _voice.updateHz = DEF_UPDATE_HZ;
+
+    if ((error = sysaudio_allocVoice(&_voice, DEF_UPDATE_HZ, appName))) {
         sysaudio_close();
         return error;
     }

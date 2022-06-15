@@ -47,5 +47,11 @@ typedef struct {
    struct MsgPort* sig;
    pthread_t    thread;
    void*        backend;
+   uint32_t     updateHz;
+#ifdef ANDROID
+   uint32_t     frameBytes;
+#endif
 }
 FaunVoice;
+
+void faun_reserve(FaunBuffer* buf, int frames);
