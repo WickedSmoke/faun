@@ -35,10 +35,10 @@
 #include "faun.h"
 
 #ifdef __linux__
-#include "pulseaudio.c"
+#include "sys_pulseaudio.c"
 #elif defined(_WIN32)
-//#include "dsound.c"
-#include "wasapi.c"
+//#include "sys_dsound.c"
+#include "sys_wasapi.c"
 #else
 #error "Unsupported system"
 #endif

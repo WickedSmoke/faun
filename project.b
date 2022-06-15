@@ -55,6 +55,6 @@ exe %basic [
 dist [
     %faun.def
     %support/cpuCounter.h
-    %pulseaudio.c
-    %wasapi.c
+    %sys_pulseaudio.c
+    %sys_wasapi.c
 ]
