@@ -43,7 +43,7 @@ static const char* sysaudio_open(const char* appName)
 {
     IMMDeviceEnumerator* denum;
     void* ptr;
-    WAVEFORMATEX* closest = NULL;
+    //WAVEFORMATEX* closest = NULL;
     WAVEFORMATEX* fmt;
     HRESULT hr;
     (void) appName;
@@ -89,13 +89,16 @@ static const char* sysaudio_open(const char* appName)
     fmt->nBlockAlign     = (fmt->nChannels * fmt->wBitsPerSample) / 8;
     fmt->cbSize          = 0;
 
+#if 0
     hr = IAudioClient_IsFormatSupported(waSession.client,
                                         AUDCLNT_SHAREMODE_SHARED,
                                         fmt, &closest);
     if (hr != S_OK) {
+        CoTaskMemFree(closest);
         sysaudio_close();
         return "Audio device does not support float sample format";
     }
+#endif
 
     return NULL;
 }
@@ -129,7 +132,9 @@ static const char* sysaudio_allocVoice(FaunVoice* voice, int updateHz,
     (void) appName;
 
     hr = IAudioClient_Initialize(waSession.client, AUDCLNT_SHAREMODE_SHARED,
-                                 AUDCLNT_STREAMFLAGS_NOPERSIST,
+                                 AUDCLNT_STREAMFLAGS_NOPERSIST |
+                                 AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+                                 AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
                                  bufTime, 0, &waSession.format, NULL);
     if (FAILED(hr))
         return waError("AudioClient Initialize failed", hr);
