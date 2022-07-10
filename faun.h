@@ -48,7 +48,7 @@ enum FaunOpcode {
     FO_COUNT
 };
 
-#define FAUN_PROGRAM_MAX    48
+#define FAUN_PROGRAM_MAX    64
 
 enum FaunPlayMode {
     FAUN_PLAY_ONCE      = 0x0001,

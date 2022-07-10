@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+# Plot the mixer times generated when cpuCounter is used in audioThread().
+
+CMD="plot"
+for FN in "$@"
+do
+	DAT=/tmp/$(basename $FN).dat
+	grep " mix" $FN | nl >$DAT
+	CMD+=" '$DAT' using 1:3,"
+done
+
+gnuplot -p -e "${CMD%,*}"

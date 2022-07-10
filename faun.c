@@ -1099,6 +1099,9 @@ drop_buf:
 
 //----------------------------------------------------------------------------
 
+#define SIMUL_MIX
+
+#ifdef SIMUL_MIX
 static void _mix1Buffer(float* output, float* end, const float* input,
                         float gain, int pass)
 {
@@ -1148,6 +1151,7 @@ static void _mix4Buffers(float* output, float* end, const float** input,
         }
     }
 }
+#endif
 
 
 /*
@@ -1156,6 +1160,7 @@ static void _mix4Buffers(float* output, float* end, const float** input,
 void faun_mixBuffers(float* output, const float** input, const float* inGain,
                     int inCount, uint32_t sampleCount)
 {
+#ifdef SIMUL_MIX
     float* end = output + sampleCount;
     const float* inputQ[4];
     float gainQ[4];
@@ -1191,6 +1196,43 @@ void faun_mixBuffers(float* output, const float** input, const float* inGain,
                 memset(output, 0, sampleCount * sizeof(float));
             break;
     }
+#else
+    float* out;
+    float* end;
+    const float* in;
+    float gain;
+    int i;
+    int mixed = 0;
+
+    if (inCount > 0) {
+        end = output + sampleCount;
+
+        gain = inGain[0];
+        if (gain > GAIN_SILENCE_THRESHOLD) {
+            in = input[0];
+            out = output;
+            while (out != end)
+                *out++ = *in++ * gain;
+            ++mixed;
+        }
+
+        for (i = 1; i < inCount; i++) {
+            gain = inGain[i];
+            if (gain > GAIN_SILENCE_THRESHOLD) {
+                in = input[i];
+                out = output;
+                while (out != end) {
+                    *out += *in++ * gain;
+                    out++;
+                }
+                ++mixed;
+            }
+        }
+    }
+
+    if (! mixed)
+        memset(output, 0, sampleCount * sizeof(float));
+#endif
 }
 
 //----------------------------------------------------------------------------
@@ -1389,7 +1431,7 @@ static void* audioThread(void* arg)
     int n;
 
 #ifdef CPUCOUNTER_H
-    uint64_t t, t1, t2;
+    uint64_t t0, tp, tc, tm, tw;
 #define COUNTER(V)  V = cpuCounter()
 #else
 #define COUNTER(V)
@@ -1409,7 +1451,7 @@ static void* audioThread(void* arg)
     for (;;)
     {
         // Wait for commands.
-        COUNTER(t);
+        COUNTER(t0);
         if (sleepTime > 0)
         {
             n = tmsg_popTimespec(port, cmd, &ts);
@@ -1417,7 +1459,7 @@ static void* audioThread(void* arg)
         else
             n = tmsg_pop(port, cmd);
 #ifdef CPUCOUNTER_H
-        printf("KR msg   %9ld\n", cpuCounter() - t);
+        printf("KR msg   %9ld\n", cpuCounter() - t0);
 #endif
         if( n < 0 )
         {
@@ -1597,7 +1639,7 @@ read_prog:
                 faun_evalProg(prog, totalMixed);
         }
 
-        COUNTER(t);
+        COUNTER(tp);
 
         // Collect active sources.
         sourceCount = 0;
@@ -1626,6 +1668,8 @@ read_prog:
                     mixSource[sourceCount++] = &st->source;
             }
         }
+
+        COUNTER(tc);
 
         // Mix active sources into voice buffer.
         for (mixed = 0; mixed < mixSampleLen; )
@@ -1708,13 +1752,14 @@ end_play:
 
         // Send final mix to audio system.
 
-        COUNTER(t1);
+        COUNTER(tm);
         error = sysaudio_write(voice, voice->mix.sample.f32,
                                mixed*2 * sizeof(float));
 #ifdef CPUCOUNTER_H
-        COUNTER(t2);
-        printf("KR mix   %9ld\n"
-               "   write %9ld\n", t1 - t, t2 - t1);
+        COUNTER(tw);
+        printf("KR col   %9ld\n"
+               "   mix   %9ld\n"
+               "   write %9ld\n", tc - tp, tm - tc, tw - tm);
 #endif
         if (error)
             fprintf(_errStream, "Faun sysaudio_write: %s\n", error);
@@ -2145,7 +2190,7 @@ void faun_setParameter(int si, int count, uint8_t param, float value)
   \param exec       Execution unit index.
   \param bytecode   FuanOpcode instructions and data.
                     The program must be terminated by FO_END.
-  \param len        Byte length of bytecode.  The maximum len is 48.
+  \param len        Byte length of bytecode.  The maximum len is 64.
 */
 void faun_program(int exec, const uint8_t* bytecode, int len)
 {
