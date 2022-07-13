@@ -3,13 +3,18 @@ Faun Audio Library
 
 Faun is a high-level C API for playback of sound & music in games & demos.
 It is a modestly sized library designed to use pre-packaged audio and is not
-intended for synthesizer or audio manipulation applications.
+intended for synthesizer or audio manipulation applications.  The shared
+library is about half the size the SDL 2 & Allegro 5 mixer libraries.
 
 The following audio formats can be played:
   - FLAC
   - Ogg Vorbis
   - [rFX][] (sfxr synthesizer)
   - WAVE
+
+The following operating systems are supported:
+  - Linux (via PulseAudio)
+  - Windows (via Windows Audio Session)
 
 Features include:
   - Support for audio embedded in larger files.
