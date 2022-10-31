@@ -203,7 +203,10 @@ int main(int argc, char** argv)
                 case 'p':               // pl - Play stream loop
                                         // po - Play stream once
                                         // pb - Play buffer & set mode
-                    if (arg[1] == 'l')
+                                        // pa - Pan
+                    if (arg[1] == 'a') {
+                        PUSH_OP_ARG(FO_SET_PAN);
+                    } else if (arg[1] == 'l')
                         *pc++ = FO_STREAM_LOOP;
                     else if (arg[1] == 'o')
                         *pc++ = FO_STREAM_ONCE;

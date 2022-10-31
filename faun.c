@@ -149,6 +149,8 @@ enum SourceState {
 #define SOURCE_QUEUE_SIZE   4
 #define BID_PACKED      0x3ff
 #define SOURCE_ID(src)  (src->serialNo & 0xff)
+#define GAIN_LEFT(pan)  ((pan <= 0.0f) ? 1.0f : 1.0f - pan)
+#define GAIN_RIGHT(pan) ((pan >= 0.0f) ? 1.0f : 1.0f + pan)
 
 typedef struct {
     uint16_t state;         // SourceState
@@ -355,7 +357,7 @@ int sfx_random(int range) {
     return faun_random(&_rng) % range;
 }
 
-static void convertMono(float*, float*, float**, const float*);
+static void convertMono(float*, float*, float**);
 #endif
 
 #define ID_FLAC MAKE_ID('f','L','a','C')
@@ -634,7 +636,6 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         SfxSynth* synth;
         float* dst;
         float* src;
-        float gain[2];
         int version = ((uint16_t*) &wh)[2];
         if (version != 200)
             fprintf(_errStream, "rFX file version not supported\n");
@@ -646,10 +647,9 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
                 frames = sfx_generateWave(synth, &sfx);
 
                 _allocBufferVoice(buf, frames);
-                gain[0] = gain[1] = 1.0f;
                 dst = buf->sample.f32;
                 src = synth->samples.f;
-                convertMono(dst, dst + frames*2, &src, gain);
+                convertMono(dst, dst + frames*2, &src);
                 buf->used = frames;
 
                 free(synth);
@@ -696,22 +696,14 @@ static void stream_closeFile(StreamOV* st)
 }
 
 
-static void faun_panGain(float pan, float* gain)
-{
-    gain[0] = (pan <= 0.0f) ? 1.0f : 1.0f - pan;
-    gain[1] = (pan >= 0.0f) ? 1.0f : 1.0f + pan;
-}
-
-
-static void convertStereoHR(float* dst, float* end, float** src,
-                            const float* gain)
+static void convertStereoHR(float* dst, float* end, float** src)
 {
     const float* ls = src[0];
     const float* rs = src[1];
     float L, R;
     while (dst != end) {
-        L = *ls++ * gain[0];
-        R = *rs++ * gain[1];
+        L = *ls++;
+        R = *rs++;
         *dst++ = L;
         *dst++ = R;
         *dst++ = L;
@@ -719,26 +711,24 @@ static void convertStereoHR(float* dst, float* end, float** src,
     }
 }
 
-// Interleave the separate channel data and apply panning.
-static void convertStereo(float* dst, float* end, float** src,
-                          const float* gain)
+// Interleave the separate channel data.
+static void convertStereo(float* dst, float* end, float** src)
 {
     const float* ls = src[0];
     const float* rs = src[1];
     while (dst != end) {
-        *dst++ = *ls++ * gain[0];
-        *dst++ = *rs++ * gain[1];
+        *dst++ = *ls++;
+        *dst++ = *rs++;
     }
 }
 
-static void convertMonoHR(float* dst, float* end, float** src,
-                          const float* gain)
+static void convertMonoHR(float* dst, float* end, float** src)
 {
     const float* c0 = src[0];
     float L, R;
     while (dst != end) {
-        L = *c0   * gain[0];
-        R = *c0++ * gain[1];
+        L = *c0;
+        R = *c0++;
         *dst++ = L;
         *dst++ = R;
         *dst++ = L;
@@ -746,18 +736,18 @@ static void convertMonoHR(float* dst, float* end, float** src,
     }
 }
 
-static void convertMono(float* dst, float* end, float** src, const float* gain)
+static void convertMono(float* dst, float* end, float** src)
 {
     const float* c0 = src[0];
     float C;
     while (dst != end) {
         C = *c0++;
-        *dst++ = C * gain[0];
-        *dst++ = C * gain[1];
+        *dst++ = C;
+        *dst++ = C;
     }
 }
 
-typedef void (*StreamConvertFunc)(float*, float*, float**, const float*);
+typedef void (*StreamConvertFunc)(float*, float*, float**);
 
 
 /*
@@ -769,7 +759,6 @@ static int _readOgg(StreamOV* st, FaunBuffer* buffer)
     float** oggPcm;
     float* dst;
     StreamConvertFunc convert;
-    float gain[2];
     int status;
     int bitstream;
     int count;
@@ -782,8 +771,6 @@ static int _readOgg(StreamOV* st, FaunBuffer* buffer)
         convert = halfRate ? convertStereoHR : convertStereo;
     else
         convert = halfRate ? convertMonoHR : convertMono;
-
-    faun_panGain(st->source.pan, gain);
 
     for (count = 0; count < readFrames; count += amt)
     {
@@ -799,7 +786,7 @@ static int _readOgg(StreamOV* st, FaunBuffer* buffer)
             amt *= 2;
 
         dst = buffer->sample.f32 + count*2;
-        convert(dst, dst + amt*2, oggPcm, gain);
+        convert(dst, dst + amt*2, oggPcm);
     }
 
     if( amt < 0 )
@@ -1110,50 +1097,64 @@ drop_buf:
 
 #ifdef SIMUL_MIX
 static void _mix1Buffer(float* output, float* end, const float* input,
-                        float gain, int pass)
+                        float gainL, float gainR, int pass)
 {
     if (pass == 0) {
-        while (output != end)
-            *output++ = *input++ * gain;
+        while (output != end) {
+            *output++ = *input++ * gainL;
+            *output++ = *input++ * gainR;
+        }
     } else {
         while (output != end) {
-            *output += *input++ * gain;
+            *output += *input++ * gainL;
+            output++;
+            *output += *input++ * gainR;
             output++;
         }
     }
 }
 
 static void _mix2Buffers(float* output, float* end, const float** input,
-                         const float* gain, int pass)
+                         const float* gainL, const float* gainR, int pass)
 {
     const float* in0 = input[0];
     const float* in1 = input[1];
     if (pass == 0) {
-        while (output != end)
-            *output++ = (*in0++ * gain[0]) + (*in1++ * gain[1]);
+        while (output != end) {
+            *output++ = (*in0++ * gainL[0]) + (*in1++ * gainL[1]);
+            *output++ = (*in0++ * gainR[0]) + (*in1++ * gainR[1]);
+        }
     } else {
         while (output != end) {
-            *output += (*in0++ * gain[0]) + (*in1++ * gain[1]);
+            *output += (*in0++ * gainL[0]) + (*in1++ * gainL[1]);
+            output++;
+            *output += (*in0++ * gainR[0]) + (*in1++ * gainR[1]);
             output++;
         }
     }
 }
 
 static void _mix4Buffers(float* output, float* end, const float** input,
-                         const float* gain, int pass)
+                         const float* gainL, const float* gainR, int pass)
 {
     const float* in0 = input[0];
     const float* in1 = input[1];
     const float* in2 = input[2];
     const float* in3 = input[3];
     if (pass == 0) {
-        while (output != end)
-            *output++ = (*in0++ * gain[0]) + (*in1++ * gain[1]) +
-                        (*in2++ * gain[2]) + (*in3++ * gain[3]);
+        while (output != end) {
+            *output++ = (*in0++ * gainL[0]) + (*in1++ * gainL[1]) +
+                        (*in2++ * gainL[2]) + (*in3++ * gainL[3]);
+            *output++ = (*in0++ * gainR[0]) + (*in1++ * gainR[1]) +
+                        (*in2++ * gainR[2]) + (*in3++ * gainR[3]);
+        }
     } else {
         while (output != end) {
-            *output += (*in0++ * gain[0]) + (*in1++ * gain[1]) +
-                       (*in2++ * gain[2]) + (*in3++ * gain[3]);
+            *output += (*in0++ * gainL[0]) + (*in1++ * gainL[1]) +
+                       (*in2++ * gainL[2]) + (*in3++ * gainL[3]);
+            output++;
+            *output += (*in0++ * gainR[0]) + (*in1++ * gainR[1]) +
+                       (*in2++ * gainR[2]) + (*in3++ * gainR[3]);
             output++;
         }
     }
@@ -1162,26 +1163,39 @@ static void _mix4Buffers(float* output, float* end, const float** input,
 
 
 /*
+ * Mix stereo inputs.
+ *
  * Inputs with gain below GAIN_SILENCE_THRESHOLD will be skipped.
+ *
+ * \param output        Output buffer for the mixed samples.
+ * \param input         Array of pointers to float input buffers.
+ * \param inGainL       Left channel gain for each input.
+ * \param inGainR       Right channel gain for each input.
+ * \param inCount       Number of inputs.
+ * \param sampleCount   Number of samples (frames*2) to mix from each input.
  */
-void faun_mixBuffers(float* output, const float** input, const float* inGain,
-                    int inCount, uint32_t sampleCount)
+void faun_mixBuffers(float* output, const float** input,
+                     const float* inGainL, const float* inGainR,
+                     int inCount, uint32_t sampleCount)
 {
 #ifdef SIMUL_MIX
     float* end = output + sampleCount;
     const float* inputQ[4];
-    float gainQ[4];
+    float gainLQ[4];
+    float gainRQ[4];
     int i;
     int pass = 0;
     int q = 0;
 
     for (i = 0; i < inCount; i++) {
-        if (inGain[i] > GAIN_SILENCE_THRESHOLD) {
+        if (inGainL[i] > GAIN_SILENCE_THRESHOLD ||
+            inGainR[i] > GAIN_SILENCE_THRESHOLD) {
             inputQ[q] = input[i];
-            gainQ[q] = inGain[i];
+            gainLQ[q] = inGainL[i];
+            gainRQ[q] = inGainR[i];
             if (q == 3) {
                 q = 0;
-                _mix4Buffers(output, end, inputQ, gainQ, pass++);
+                _mix4Buffers(output, end, inputQ, gainLQ, gainRQ, pass++);
             } else
                 q++;
         }
@@ -1189,14 +1203,14 @@ void faun_mixBuffers(float* output, const float** input, const float* inGain,
 
     switch (q) {
         case 3:
-            _mix2Buffers(output, end, inputQ, gainQ, pass++);
-            _mix1Buffer(output, end, inputQ[2], gainQ[2], pass);
+            _mix2Buffers(output, end, inputQ, gainLQ, gainRQ, pass++);
+            _mix1Buffer(output, end, inputQ[2], gainLQ[2], gainRQ[2], pass);
             break;
         case 2:
-            _mix2Buffers(output, end, inputQ, gainQ, pass);
+            _mix2Buffers(output, end, inputQ, gainLQ, gainRQ, pass);
             break;
         case 1:
-            _mix1Buffer(output, end, inputQ[0], gainQ[0], pass);
+            _mix1Buffer(output, end, inputQ[0], gainLQ[0], gainRQ[0], pass);
             break;
         default:
             if (pass == 0)
@@ -1207,29 +1221,37 @@ void faun_mixBuffers(float* output, const float** input, const float* inGain,
     float* out;
     float* end;
     const float* in;
-    float gain;
+    float gainL, gainR;
     int i;
     int mixed = 0;
 
     if (inCount > 0) {
         end = output + sampleCount;
 
-        gain = inGain[0];
-        if (gain > GAIN_SILENCE_THRESHOLD) {
+        gainL = inGainL[0];
+        gainR = inGainR[0];
+        if (gainL > GAIN_SILENCE_THRESHOLD ||
+            gainR > GAIN_SILENCE_THRESHOLD) {
             in = input[0];
             out = output;
-            while (out != end)
-                *out++ = *in++ * gain;
+            while (out != end) {
+                *out++ = *in++ * gainL;
+                *out++ = *in++ * gainR;
+            }
             ++mixed;
         }
 
         for (i = 1; i < inCount; i++) {
-            gain = inGain[i];
-            if (gain > GAIN_SILENCE_THRESHOLD) {
+            gainL = inGainL[i];
+            gainR = inGainR[i];
+            if (gainL > GAIN_SILENCE_THRESHOLD ||
+                gainR > GAIN_SILENCE_THRESHOLD) {
                 in = input[i];
                 out = output;
                 while (out != end) {
-                    *out += *in++ * gain;
+                    *out += *in++ * gainL;
+                    out++;
+                    *out += *in++ * gainR;
                     out++;
                 }
                 ++mixed;
@@ -1315,7 +1337,8 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 i = prog->si;
                 src = (i < _sourceLimit) ? _asource + i
                                          : &_stream[i - _sourceLimit].source;
-                src->pan = (float) (*pc++) / 255.0f;
+                src->pan = (float) *((int8_t*) pc) / 127.0f;
+                pc++;
                 break;
 
             case FO_SET_FADE:
@@ -1421,7 +1444,8 @@ static void* audioThread(void* arg)
     StreamOV* st;
     FaunSource** mixSource;
     const float** input;
-    float* inputGain;
+    float* inputGainL;
+    float* inputGainR;
     const char* error;
     char cmdBuf[sizeof(CommandF) * 2];
     CommandA* cmd = (CommandA*) cmdBuf;
@@ -1450,9 +1474,10 @@ static void* audioThread(void* arg)
 #endif
 
     n = _sourceLimit + _streamLimit;
-    mixSource = (FaunSource**) malloc(n * sizeof(void*) * 3);
-    input     = (const float**) (mixSource + n);
-    inputGain = (float*) (input + n);
+    mixSource  = (FaunSource**) malloc(n * sizeof(void*) * 4);
+    input      = (const float**) (mixSource + n);
+    inputGainL = (float*) (input + n);
+    inputGainR = inputGainL + n;
 
     tmsg_setTimespec(&ts, sleepTime);
 
@@ -1688,12 +1713,16 @@ read_prog:
             {
                 src = mixSource[i];
                 if (src->qactive == QACTIVE_NONE)
-                    inputGain[i] = 0.0f;
+                {
+                    inputGainL[i] = 0.0f;
+                    inputGainR[i] = 0.0f;
+                }
                 else
                 {
                     buf = src->bufferQueue[src->qactive];
                     input[i] = buf->sample.f32 + src->playPos*2;
-                    inputGain[i] = src->gain;
+                    inputGainL[i] = GAIN_LEFT(src->pan) * src->gain;
+                    inputGainR[i] = GAIN_RIGHT(src->pan) * src->gain;
 
                     samplesAvail = buf->used - src->playPos;
                     if (samplesAvail < fragmentLen)
@@ -1708,7 +1737,8 @@ read_prog:
             REPORT_MIX("FAUN mixBuffers count:%d mixed:%4d/%d frag:%4d\n",
                        sourceCount, mixed, mixSampleLen, fragmentLen);
             faun_mixBuffers(voice->mix.sample.f32 + mixed*2,
-                           input, inputGain, sourceCount, fragmentLen*2);
+                            input, inputGainL, inputGainR,
+                            sourceCount, fragmentLen*2);
 
             // Advance play positions.
             for (i = 0; i < sourceCount; ++i)

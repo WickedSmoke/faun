@@ -36,7 +36,7 @@ enum FaunOpcode {
     FO_STREAM_ONCE,
     FO_STREAM_LOOP,
     FO_SET_VOL,         // Unit value
-    FO_SET_PAN,
+    FO_SET_PAN,         // (-127=left 0=center 127=right)
     FO_SET_FADE,        // 1/10 second units
     FO_SET_END,         // 1/10 second units
     FO_LOOP_ON,

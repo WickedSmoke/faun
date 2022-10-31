@@ -146,6 +146,8 @@ capture 13 t13-so-loop "-b0 $SO_E -o ca so0 pb0 41 ly wa10 fo en -W"
 listen  14 t14-st-short "-m8 0 $ST_LB -s 41 15.377778 0.534 -W"
 capture 15 t15-mix5    "-b0 $SO_F -b1 $SO_R -b2 $SO_N -b3 $SO_G -m8 50 $ST_TO -o ca so8 pl so0 vo128 pb3 1 so1 vo70 pb0 2 wa10 so2 pb1 2 so3 pb2 2 wa30 so8 fo en -W"
 capture 16 t16-mix8    "-b0 $SO_F -b1 $SO_R -b2 $SO_N -b3 $SO_G -o ca so0 vo128 pb3 2 so1 vo70 pb0 2 so2 pb1 2 so3 pb2 2 wa20 so4 vo128 pb3 41 so5 vo70 pb0 2 so6 pb1 2 so7 pb2 2 en -W"
+capture 17 t17-pan     "-b0 $SO_N -o ca so0 vo220 pa-127 pb0 1 wa20 pa0 pb0 1 wa20 pa127 pb0 41 en -W"
+capture 18 t18-st-pan  "-m8 40 $ST_TO -o ca so8 vo100 pa-127 po wa20 vo255 pa-64 wa20 vo100 pa127 wa20 vo255 pa-64 wa20 vo100 pa0 wa20 fo en -W"
 
 fcode   30 t30-fc example/fcode01.b
 
