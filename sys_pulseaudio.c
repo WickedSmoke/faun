@@ -29,7 +29,8 @@ static const char* sysaudio_allocVoice(FaunVoice* voice, int updateHz,
     pa_sample_spec ss;
     pa_buffer_attr ba;
     int error;
-    (void) updateHz;
+    pa_usec_t dur = 2500000 / updateHz;
+                //= 50 * 1000;      // 50 ms latency
 
     ss.channels = faun_channelCount(voice->mix.chanLayout);
     ss.rate     = voice->mix.rate;
@@ -38,7 +39,7 @@ static const char* sysaudio_allocVoice(FaunVoice* voice, int updateHz,
     // Use default attributes except for a lower latency.
     // This can be overridden by the PULSE_LATENCY_MSEC environment variable.
     ba.maxlength = -1;
-    ba.tlength   = pa_usec_to_bytes(50 * 1000, &ss);  // 50 ms of latency
+    ba.tlength   = pa_usec_to_bytes(dur, &ss);
     ba.prebuf    = -1;
     ba.minreq    = -1;
     ba.fragsize  = -1;
