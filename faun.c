@@ -917,6 +917,10 @@ static void source_setMode(FaunSource* src, int mode)
     if (mode & FAUN_PLAY_FADE_IN) {
         src->gain = 0.0f;
         src->fade = FADE_DELTA(src->fadePeriod);
+    } else {
+        // Reset after any previous fade out.
+        src->gain = src->volume;
+        src->fade = 0.0f;
     }
     src->fadePos = END_POS_NONE;
 }
