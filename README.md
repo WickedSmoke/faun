@@ -84,4 +84,29 @@ streams.
 > _**NOTE:**_ Currently only Ogg Vorbis files can be streamed.
 
 
+Build Instructions
+------------------
+
+### Linux Dependencies
+
+The Vorbis and PulseAudio libraries (with headers) must be installed.
+
+Fedora:
+
+    sudo dnf install libvorbis-devel pulseaudio-libs-devel
+
+Ubuntu:
+
+    sudo apt install libvorbis-dev libpulse-dev
+
+### Build for Linux
+
+The following commands will build and install the shared Faun library.
+Use the `--static` configure option to build a static library.
+
+    ./configure --prefix /usr
+    make
+    sudo make install
+
+
 [rFX]: https://raylibtech.itch.io/rfxgen
