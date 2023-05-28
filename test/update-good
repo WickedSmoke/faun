@@ -1,0 +1,5 @@
+for W in /tmp/t*.wav; do
+	T=$(basename $W .wav)
+	# echo $T
+	sha1sum $W >good/$T
+done

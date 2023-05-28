@@ -1993,7 +1993,7 @@ static int limitU(int val, int max)
 const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
                          int progLimit, const char* appName)
 {
-    const int DEF_UPDATE_HZ = 45;
+    const int DEF_UPDATE_HZ = 48;
     const char* error;
     int i;
 
