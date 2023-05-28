@@ -1,0 +1,26 @@
+#!/usr/bin/bash
+# Plot the cpuCounter times for each audioThread() stage.
+
+# ./faun_test -m8 51 $OGG -W >/tmp/out.log
+
+LF="$1"
+if [ -z $LF ]; then
+	echo "Usage: $0 <log_file> [<start>]"
+	exit
+fi
+
+grep "CT col"   $LF >/tmp/ct0.dat
+grep "CT mix"   $LF >/tmp/ct1.dat
+grep "CT write" $LF >/tmp/ct2.dat
+grep "CT msg"   $LF >/tmp/ct3.dat
+
+CMD="set title '$LF'; plot "
+if [ ! -z $2 ]; then
+	CMD+="[$2:] "
+fi
+CMD+="'/tmp/ct0.dat' using 3 title 'collect', "
+CMD+="'/tmp/ct1.dat' using 3 title 'mix', "
+CMD+="'/tmp/ct2.dat' using 3 title 'write', "
+CMD+="'/tmp/ct3.dat' using 3 title 'message'"
+
+gnuplot -p -e "${CMD}"

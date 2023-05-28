@@ -1496,7 +1496,7 @@ static void* audioThread(void* arg)
         else
             n = tmsg_pop(port, cmd);
 #ifdef CPUCOUNTER_H
-        printf("KR msg   %9ld\n", cpuCounter() - t0);
+        printf("CT msg   %9ld\n", cpuCounter() - t0);
 #endif
         if( n < 0 )
         {
@@ -1799,9 +1799,9 @@ end_play:
                                mixed*2 * sizeof(float));
 #ifdef CPUCOUNTER_H
         COUNTER(tw);
-        printf("KR col   %9ld\n"
-               "   mix   %9ld\n"
-               "   write %9ld\n", tc - tp, tm - tc, tw - tm);
+        printf("CT col   %9ld\n"
+               "CT mix   %9ld\n"
+               "CT write %9ld\n", tc - tp, tm - tc, tw - tm);
 #endif
         if (error)
             fprintf(_errStream, "Faun sysaudio_write: %s\n", error);
