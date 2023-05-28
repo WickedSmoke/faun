@@ -250,7 +250,7 @@ FaunBuffer* faun_processedBuffer(FaunSource* src)
 
 void faun_reserve(FaunBuffer* buf, int frames)
 {
-    if (buf->avail < frames) {
+    if (buf->avail < (uint32_t) frames) {
         buf->sample.ptr = realloc(buf->sample.ptr,
                                   frames * faun_formatSize[buf->format] *
                                            faun_channelCount(buf->chanLayout));
