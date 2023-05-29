@@ -10,7 +10,7 @@ SCRIPT=build-$TIME
 ID=${SCRIPT}
 HDIR=/tmp
 CDIR=/tmp
-ARC_DIR=/tmp/faun_sdk-0.1.2
+ARC_DIR=/tmp/faun_sdk-0.1.3
 
 clean_dir () {
     if [ -d "$1" ]; then rm -rf "$1"/*; else mkdir -p "$1"; fi
@@ -36,9 +36,9 @@ windows)
 ' >$HDIR/${SCRIPT}
 
     #LIB_NAME=libfaun.dll
-    #ARC_NAME=faun-x86_64-w64-mingw32-dynamic-0.1.2.zip
+    #ARC_NAME=faun-x86_64-w64-mingw32-dynamic-0.1.3.zip
     LIB_NAME=libfaun.a
-    ARC_NAME=faun-x86_64-w64-mingw32-static-0.1.2.zip
+    ARC_NAME=faun-x86_64-w64-mingw32-static-0.1.3.zip
 
     container_build dev/f35-mingw
     podman cp $ID:/home/build/faun/${LIB_NAME} ${ARC_DIR}/lib || exit
@@ -63,7 +63,7 @@ linux)
 ' >$HDIR/${SCRIPT}
 
     LIB_NAME=libfaun.a
-    ARC_NAME=faun-x86_64-static-0.1.2.tar.bz2
+    ARC_NAME=faun-x86_64-static-0.1.3.tar.bz2
 
     container_build xu4/f33-gcc
     podman cp $ID:/home/build/faun/${LIB_NAME} ${ARC_DIR}/lib || exit

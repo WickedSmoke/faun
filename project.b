@@ -36,7 +36,7 @@ either static [
     lib %faun libfaun
     faun-link: does append flink faun-dep
 ][
-    shlib [%faun 0,1,2] append append libfaun faun-dep [
+    shlib [%faun 0,1,3] append append libfaun faun-dep [
         win32 [lflags either msvc "/def:faun.def" "faun.def"]
     ]
     faun-link: does flink
