@@ -666,6 +666,26 @@ cleanup:
     return frames;
 }
 
+// Abort all sources playing a freed buffer.
+static void faun_detachBuffers()
+{
+    FaunSource* src;
+    int i;
+    for (i = 0; i < _sourceLimit; ++i) {
+        src = _asource + i;
+        if (src->qactive != QACTIVE_NONE) {
+            // Only the current buffer is checked; any queued buffers
+            // will be skipped during the "Advance play positions" phase.
+
+            if (! src->bufferQueue[src->qactive]->sample.ptr) {
+                src->qactive = QACTIVE_NONE;
+                src->state = SS_UNUSED;
+            }
+        }
+    }
+}
+
+
 //----------------------------------------------------------------------------
 
 static void stream_init(StreamOV* st, int id)
@@ -1555,7 +1575,7 @@ read_prog:
                     //       cmd->select, cmdPart);
                     buf = _abuffer + cmd->select;
                     free(buf->sample.ptr);
-                    // TODO: Detach from all sources.
+                    faun_detachBuffers();
 
                     // Command contains sample, avail, & used members.
                     memcpy(buf, cmdBuf + 2, 16);
@@ -1568,7 +1588,7 @@ read_prog:
 
                 case CMD_BUFFERS_FREE:
                     faun_freeBufferSamples(cmd->ext, _abuffer + cmd->select);
-                    // TODO: Detach from all sources.
+                    faun_detachBuffers();
                     break;
 
                 case CMD_PLAY_SOURCE:
@@ -1605,8 +1625,10 @@ read_prog:
                             src = _asource + i;
                         else
                             src = &_stream[i - _sourceLimit].source;
-                        src->state = (cmd->op == CMD_CON_STOP) ? SS_STOPPED
-                                                               : SS_PLAYING;
+                        if (src->qactive != QACTIVE_NONE) {
+                            src->state = (cmd->op == CMD_CON_STOP) ?
+                                            SS_STOPPED : SS_PLAYING;
+                        }
                     }
                     break;
 
@@ -1757,6 +1779,7 @@ read_prog:
                     {
 end_play:
                         src->qactive = QACTIVE_NONE;
+                        src->state = SS_UNUSED;
                         if (src->mode & FAUN_SIGNAL_DONE)
                             signalDone(src);
                     }
@@ -1780,8 +1803,12 @@ end_play:
                                     ((int) SOURCE_ID(src) < _sourceLimit))
                                     continue;
                                 goto end_play;
-                            } else
+                            } else {
+                                // Abort if a buffer was freed.
+                                if (! src->bufferQueue[n]->sample.ptr)
+                                    goto end_play;
                                 src->qactive = n;
+                            }
                         }
                         else
                             src->playPos = pos;
