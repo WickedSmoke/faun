@@ -42,6 +42,9 @@ extern int sfx_random(int range);
 // SINGLE_FORMAT values: 1=uint8_t 2=int16_t 3=float
 //#define SINGLE_FORMAT   2
 
+// Apply squareDuty to sawtooth waveform.
+#define SAWTOOTH_DUTY
+
 #define PI  3.14159265f
 
 /*
@@ -301,10 +304,12 @@ int sfx_generateWave(SfxSynth* synth, const SfxParams* sp)
         envTime++;
         if (envTime > envLength[envStage]) {
             envTime = 0;
+next_stage:
             envStage++;
-
             if (envStage == 3)
-                sampleEnd = sampleCount;    // End generator loop.
+                break;          // End generator loop.
+            if (envLength[envStage] == 0)
+                goto next_stage;
         }
 
         switch (envStage) {
@@ -357,7 +362,13 @@ int sfx_generateWave(SfxSynth* synth, const SfxParams* sp)
                     sample = (fp < squareDuty) ? 0.5f : -0.5f;
                     break;
                 case SFX_SAWTOOTH:
+#ifdef SAWTOOTH_DUTY
+                    sample = (fp < squareDuty) ?
+                             -1.0f + 2.0f * fp/squareDuty :
+                              1.0f - 2.0f * (fp-squareDuty)/(1.0f-squareDuty);
+#else
                     sample = 1.0f - fp*2;
+#endif
                     break;
                 case SFX_SINE:
                     sample = sinf(fp*2*PI);
@@ -413,6 +424,7 @@ int sfx_generateWave(SfxSynth* synth, const SfxParams* sp)
         else if (ssample < -1.0f)
             ssample = -1.0f;
 
+        //printf("%d %f\n", sampleCount, ssample);
 #if SINGLE_FORMAT == 1
         *buffer++ = (uint8_t) (ssample*127.0f + 128.0f);
 #elif SINGLE_FORMAT == 2
@@ -750,9 +762,12 @@ void sfx_genPowerup(SfxParams* sp)
 {
     sfx_resetParams(sp);
 
-    if (sfx_random(2))
+    if (sfx_random(2)) {
         sp->waveType = SFX_SAWTOOTH;
-    else
+#ifdef SAWTOOTH_DUTY
+        sp->squareDuty = 1.0f;
+#endif
+    } else
         sp->squareDuty = frnd(0.6f);
 
     if (sfx_random(2)) {
@@ -781,8 +796,12 @@ void sfx_genHitHurt(SfxParams* sp)
     sp->waveType = sfx_random(3);
     if (sp->waveType == SFX_SINE)
         sp->waveType = SFX_NOISE;
-    if (sp->waveType == SFX_SQUARE)
+    else if (sp->waveType == SFX_SQUARE)
         sp->squareDuty = frnd(0.6f);
+#ifdef SAWTOOTH_DUTY
+    else if (sp->waveType == SFX_SAWTOOTH)
+        sp->squareDuty = 1.0f;
+#endif
 
     sp->startFrequency  = 0.2f + frnd(0.6f);
     sp->slide           = -0.3f - frnd(0.4f);
@@ -819,11 +838,44 @@ void sfx_genBlipSelect(SfxParams* sp)
     sp->waveType = sfx_random(2);
     if (sp->waveType == SFX_SQUARE)
         sp->squareDuty = frnd(0.6f);
+#ifdef SAWTOOTH_DUTY
+    else
+        sp->squareDuty = 1.0f;
+#endif
     sp->startFrequency  = 0.2f + frnd(0.4f);
     sp->attackTime      = 0.0f;
     sp->sustainTime     = 0.1f + frnd(0.1f);
     sp->decayTime       = frnd(0.2f);
     sp->hpfCutoff       = 0.1f;
+}
+
+void sfx_genSynth(SfxParams* sp)
+{
+    static const float synthFreq[3] = {
+        0.27231713609, 0.19255692561, 0.13615778746
+    };
+    static const float arpeggioMod[7] = {
+        0, 0, 0, 0, -0.3162, 0.7454, 0.7454
+    };
+
+    sfx_resetParams(sp);
+
+    sp->waveType = sfx_random(2);
+    sp->startFrequency  = synthFreq[ sfx_random(3) ];
+    sp->attackTime      = sfx_random(5) > 3 ? frnd(0.5) : 0;
+    sp->sustainTime     = frnd(1.0f);
+    sp->sustainPunch    = frnd(1.0f);
+    sp->decayTime       = frnd(0.9f) + 0.1f;
+    sp->changeAmount    = arpeggioMod[ sfx_random(7) ];
+    sp->changeSpeed     = frnd(0.5f) + 0.4f;
+    sp->squareDuty      = frnd(1.0f);
+    sp->dutySweep       = (sfx_random(3) == 2) ? frnd(1.0f) : 0.0f;
+    sp->lpfCutoff       = (sfx_random(2) == 1) ? 1.0f :
+                                        0.9f * frnd(1.0f) * frnd(1.0f) + 0.1f;
+    sp->lpfCutoffSweep  = rndNP1();
+    sp->lpfResonance    = frnd(1.0f);
+    sp->hpfCutoff       = (sfx_random(4) == 3) ? frnd(1.0f) : 0.0f;
+    sp->hpfCutoffSweep  = (sfx_random(4) == 3) ? frnd(1.0f) : 0.0f;
 }
 
 /*
