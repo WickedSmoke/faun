@@ -3,7 +3,7 @@ new: 0,1,3
 files: [
     %Makefile           ["faun.so.$v"]
     %project.b          ["%faun $c"]
-    %dist/cbuild        ["-$v"]
+    %dist/cbuild        ["VERS=$v"]
     %jni/build-sdk.sh   ["-$v"]
    ;%faun.h [
    ;    {FAUN_VERSION_STR    "$v"}
