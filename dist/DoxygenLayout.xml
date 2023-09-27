@@ -7,7 +7,7 @@
     <tab type="pages" visible="no" title="" intro=""/>
     <tab type="modules" visible="yes" title="" intro=""/>
     <tab type="examples" visible="yes" title="" intro=""/>  
-    <tab type="user" url="md_download.html" title="Downloads"/>
+    <tab type="user" url="https://github.com/WickedSmoke/faun/releases" title="Downloads"/>
     <tab type="user" url="https://github.com/WickedSmoke/faun" title="Source"/>
     <tab type="namespaces" visible="yes" title="">
       <tab type="namespacelist" visible="yes" title="" intro=""/>
