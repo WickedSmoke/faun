@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-SDK=/tmp/faun-0.1.3
+SDK=/tmp/faun-0.1.4
 
 if [ ! -d /tmp/usr/arm64-v8a ]; then
 	tar xjf jni/vorbis-android-static-1.3.7.tar.bz2 -C /tmp
@@ -19,4 +19,4 @@ cp /tmp/usr/x86_64/lib/*.a $SDK/libs/x86_64
 rm $SDK/libs/*/libvorbisenc.a
 #tree $SDK
 
-tar cjf /tmp/faun-android-static-0.1.3.tar.bz2 -C /tmp faun-0.1.3
+tar cjf /tmp/faun-android-static-0.1.4.tar.bz2 -C /tmp faun-0.1.4
