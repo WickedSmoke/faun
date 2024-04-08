@@ -129,8 +129,7 @@ SO_N=data/sa_enchant.rfx
 SO_L=data/thx-lfreq.flac
 
 
-capture  1 t01-so "-b0 $SO_G -b1 $SO_E -o ca so0 pb0 41 wa20 so1 pb1 1 wa20 pb1
-1 en -W"
+capture  1 t01-so "-b0 $SO_G -b1 $SO_E -o ca so0 pb0 41 wa20 so1 pb1 1 wa20 pb1 1 en -W"
 capture  2 t02-st-fade "-m8 50 $ST_TO -o ca so8 pl wa40 fo en -W"
 listen   3 t03-st-segment "-m8 0 $ST_LB -s 1 0.0 2.856054 /4 -s 1 19.882448 3.297234 /4 -s 1 19.882448 3.297234 /4 -s 41 0.0 2.856054 -W"
 capture  4 t04-so-sfx  "-b0 $SO_R -o ca so0 pb0 41 en -W"
