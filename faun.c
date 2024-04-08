@@ -7,7 +7,7 @@
 
   Faun - A high-level C audio library
 
-  Copyright (c) 2022 Karl Robillard
+  Copyright (c) 2022-2024 Karl Robillard
 
   Permission is hereby granted, free of charge, to any person obtaining a
   copy of this software and associated documentation files (the "Software"),

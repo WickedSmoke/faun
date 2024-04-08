@@ -1,5 +1,5 @@
-old: 0,1,3
-new: 0,1,4
+old: 0,1,4
+new: 0,1,5
 files: [
     %Makefile           ["faun.so.$v"]
     %project.b          ["%faun $c"]

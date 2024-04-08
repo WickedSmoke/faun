@@ -9,15 +9,15 @@
 
   Faun - A high-level C audio library
 
-  Copyright (c) 2022 Karl Robillard
+  Copyright (c) 2022-2024 Karl Robillard
   This code may be used under the terms of the MIT license (see faun.c).
 */
 
 #include <stdint.h>
 #include <stdio.h>
 
-#define FAUN_VERSION_STR    "0.1.0"
-#define FAUN_VERSION        0x000100
+#define FAUN_VERSION_STR    "0.1.5"
+#define FAUN_VERSION        0x000105
 
 enum FaunCommand {
     FC_START,

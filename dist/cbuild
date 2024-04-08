@@ -10,7 +10,7 @@ SCRIPT=build-$TIME
 ID=${SCRIPT}
 HDIR=/tmp
 CDIR=/tmp
-VERS=0.1.4
+VERS=0.1.5
 ARC_DIR=/tmp/faun_sdk-${VERS}
 
 clean_dir () {
