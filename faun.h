@@ -93,6 +93,7 @@ void faun_setParameter(int si, int count, uint8_t param, float value);
 void faun_program(int ei, const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
+float faun_loadBufferF(int bi, FILE* file, uint32_t size);
 void  faun_freeBuffers(int bi, int count);
 void  faun_playSource(int si, int bi, int mode);
 

@@ -408,6 +408,10 @@ static ov_callbacks chunkMethods = {
     chunk_fread, chunk_fseek, chunk_fclose, chunk_ftell
 };
 
+static ov_callbacks chunkMethodsNoClose = {
+    chunk_fread, chunk_fseek, NULL, chunk_ftell
+};
+
 static int _readOgg(StreamOV* st, FaunBuffer* buffer);
 
 //----------------------------------------------------------------------------
@@ -460,20 +464,16 @@ static void convS16_F32(float* dst, const int16_t* src, int frames, int rate,
     }
 }
 
-// Return number of frames or zero upon error.
-static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
-                               uint32_t offset, uint32_t size)
+// Return error message or NULL if successful.
+static const char* cmd_bufferFile(FaunBuffer* buf, FILE* fp,
+                                  uint32_t offset, uint32_t size)
 {
     WavHeader wh;
-    FILE* fp;
+    const char* error = NULL;
     uint32_t frames = 0;
+    const int wavReadLen = 20;  // wav_readHeader() reads 20 bytes.
     int err;
 
-    fp = fopen(path, "rb");
-    if (! fp) {
-        fprintf(_errStream, "Faun loadBuffer cannot open \"%s\"\n", path);
-        return 0;
-    }
     if (offset)
         fseek(fp, offset, SEEK_SET);
 
@@ -485,15 +485,10 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
 
         //wav_dumpHeader(stdout, &wh, NULL, "  ");
 
-        if (wh.sampleRate != 44100 && wh.sampleRate != 22050) {
-            fprintf(_errStream, "WAVE sample rate %d is unsupported\n",
-                    wh.sampleRate);
-            goto cleanup;
-        }
-        if (wh.bitsPerSample != 16) {
-            fprintf(_errStream, "WAVE bits per sample is not 16\n");
-            goto cleanup;
-        }
+        if (wh.sampleRate != 44100 && wh.sampleRate != 22050)
+            return "WAVE sample rate is unsupported";
+        if (wh.bitsPerSample != 16)
+            return "WAVE bits per sample is not 16";
 
         frames = wavFrames = wav_sampleCount(&wh);
         if (wh.sampleRate == 22050)
@@ -503,7 +498,7 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         readBuf = (int16_t*) malloc(wh.dataSize);
         n = fread(readBuf, 1, wh.dataSize, fp);
         if (n != wh.dataSize) {
-            fprintf(_errStream, "Faun cannot read WAVE \"%s\"\n", path);
+            error = "WAVE fread failed";
         } else {
             buf->used = frames;
             convS16_F32(buf->sample.f32, readBuf, wavFrames, wh.sampleRate,
@@ -526,11 +521,10 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         os.chunk.offset = offset;
         os.chunk.size   = size;
 
-        // wav_readHeader() has read 20 bytes for us.
-        if (ov_open_callbacks(&os.chunk, &os.vf, (char*) &wh, 20,
-                              chunkMethods) < 0)
+        if (ov_open_callbacks(&os.chunk, &os.vf, (char*) &wh, wavReadLen,
+                              chunkMethodsNoClose) < 0)
         {
-            fprintf(_errStream, "Faun cannot open Ogg \"%s\"\n", path);
+            error = "Ogg open failed";
         }
         else
         {
@@ -540,10 +534,9 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
             _allocBufferVoice(buf, frames);
             status = _readOgg(&os, buf);
             if (status != RSTAT_DATA)
-                fprintf(_errStream, "Faun cannot read Ogg \"%s\"\n", path);
+                error = "Ogg read failed";
 
-            ov_clear(&os.vf);  // Closes fp for us.
-            return frames;
+            ov_clear(&os.vf);
         }
       }
 #ifdef USE_FLAC
@@ -565,9 +558,8 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         decodeBuf = (int32_t*) malloc(decodeSize*sizeof(int32_t) + bufSize);
         readBuf   = (uint8_t*) (decodeBuf + decodeSize);
 
-        // wav_readHeader() has read 20 bytes for us.
-        memcpy(readBuf, &wh, 20);
-        bufPos = 20;
+        memcpy(readBuf, &wh, wavReadLen);
+        bufPos = wavReadLen;
 
         while (1) {
             toRead = bufSize - bufPos;
@@ -583,7 +575,7 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
             fstate = fx_flac_process(flac, readBuf, &inUsed,
                                            decodeBuf, &procLen);
             if (fstate == FLAC_ERR) {
-                fprintf(_errStream, "Faun cannot decode FLAC \"%s\"\n", path);
+                error = "FLAC decode failed";
                 break;
             }
             if (fstate == FLAC_END_OF_METADATA) {
@@ -596,7 +588,7 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
 
                 // NOTE: Zero for total samples denotes 'unknown' and is valid.
                 if (! frames) {
-                    fprintf(_errStream, "FLAC total samples is unknown!\n");
+                    error = "FLAC total samples is unknown";
                     break;
                 }
 
@@ -638,7 +630,7 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
         float* src;
         int version = ((uint16_t*) &wh)[2];
         if (version != 200)
-            fprintf(_errStream, "rFX file version not supported\n");
+            error = "rFX file version not supported";
         else {
             fseek(fp, offset + 8, SEEK_SET);
             if (fread(&sfx, 1, sizeof(SfxParams), fp) == sizeof(SfxParams)) {
@@ -655,15 +647,13 @@ static uint32_t cmd_bufferFile(FaunBuffer* buf, const char* path,
                 free(synth);
             }
             else
-                fprintf(_errStream, "Faun cannot read rFX \"%s\"\n", path);
+                error = "rFX fread failed";
         }
       }
 #endif
     }
 
-cleanup:
-    fclose(fp);
-    return frames;
+    return error;
 }
 
 // Abort all sources playing a freed buffer.
@@ -2319,13 +2309,61 @@ void faun_program(int exec, const uint8_t* bytecode, int len)
 */
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
 {
+    float duration = 0.0f;
+
     if( _audioUp && bi < _bufferLimit )
     {
         FaunBuffer buf;
+        const char* error;
+
+        // Load buffer in user thread.
+        FILE* fp = fopen(file, "rb");
+        if (fp) {
+            buf.sample.ptr = NULL;
+            error = cmd_bufferFile(&buf, fp, offset, size);
+            if (error) {
+                fprintf(_errStream, "Faun %s (%s)\n", error, file);
+            } else {
+                uint8_t cmd[MSG_SIZE];
+
+                cmd[0] = CMD_SET_BUFFER;
+                cmd[1] = bi;
+                memcpy(cmd+2, &buf, 16);
+                tmsg_push(_voice.cmd, cmd);
+
+                duration = (float) buf.used / (float) buf.rate;
+            }
+            fclose(fp);
+        } else {
+            fprintf(_errStream, "Faun loadBuffer cannot open \"%s\"\n", file);
+        }
+    }
+    return duration;
+}
+
+
+/**
+  Load audio data from FILE into a PCM buffer.
+
+  \param bi       Buffer index.
+  \param fp       FILE pointer positioned at the start of audio data.
+  \param size     Bytes to read from file. Pass zero to read to the file end.
+
+  \return Duration in seconds or zero upon failure.
+*/
+float faun_loadBufferF(int bi, FILE* fp, uint32_t size)
+{
+    if( _audioUp && bi < _bufferLimit )
+    {
+        FaunBuffer buf;
+        const char* error;
 
         // Load buffer in user thread.
         buf.sample.ptr = NULL;
-        if (cmd_bufferFile(&buf, file, offset, size)) {
+        error = cmd_bufferFile(&buf, fp, 0, size);
+        if (error) {
+            fprintf(_errStream, "Faun %s\n", error);
+        } else {
             uint8_t cmd[MSG_SIZE];
 
             cmd[0] = CMD_SET_BUFFER;

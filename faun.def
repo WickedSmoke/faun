@@ -14,3 +14,4 @@ EXPORTS
   faun_playStream        @12
   faun_playStreamPart    @13
   faun_closeOnSignal     @14
+  faun_loadBufferF       @15
