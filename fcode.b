@@ -16,13 +16,21 @@ faun-compile: func [blk block!] [
       | 'fade-out       (append bc 14)
       | 'signal         (append bc 15)
       | 'capture        (append bc 16)
-      | into ['play (mode: 1) some [
-            'loop     (mode: or 2 and mode complement 1)
-          | 'fade-in  (mode: or mode 0x10)
-          | 'fade-out (mode: or mode 0x20)
-          | 'fade     (mode: or mode 0x30)
-          | 'sig-done (mode: or mode 0x40)
-        ]] int!         (append bc reduce [4 second tok mode])
+      | path! int! (
+            b: to-block first tok
+            forall b [
+                switch first b [
+                    'play     [mode: 1]     ; Must be first!
+                    'loop     [mode: or 2 and mode complement 1]
+                    'fade-in  [mode: or mode 0x10]
+                    'fade-out [mode: or mode 0x20]
+                    'fade     [mode: or mode 0x30]
+                    'sig-done [mode: or mode 0x40]
+                    [error "Invalid play option"]
+                ]
+            ]
+            append bc reduce [4 second tok mode]
+        )
     ]]
         [error "Invalid Faun program"]
     append bc 0
