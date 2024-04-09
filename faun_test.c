@@ -61,7 +61,7 @@ int main(int argc, char** argv)
     uint32_t offset = 0;
     uint32_t size = 0;
 
-    if ((error = faun_startup(16, 8, 2, 1, "Faun Test"))) {
+    if ((error = faun_startup(16, 8, 3, 1, "Faun Test"))) {
         fprintf(stderr, "faun_startup: %s\n", error);
         return 1;
     }

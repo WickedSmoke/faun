@@ -231,7 +231,7 @@ static void faun_queueBuffer(FaunSource* src, FaunBuffer* buf)
  * Return buffer pointer or NULL if there are none finished playing in the
  * queue.
  */
-FaunBuffer* faun_processedBuffer(FaunSource* src)
+static FaunBuffer* faun_processedBuffer(FaunSource* src)
 {
     FaunBuffer* ptr;
     int i;
@@ -819,7 +819,7 @@ static int _readOgg(StreamOV* st, FaunBuffer* buffer)
 }
 
 
-static void stream_fillBuffers(StreamOV*);
+static int stream_fillBuffers(StreamOV*);
 
 static void stream_start(StreamOV* st)
 {
@@ -1030,18 +1030,22 @@ static void cmd_playStreamPart(int si, double start, double duration, int mode)
 
 
 /**
-  Called periodically (once per frame) to decode audio from file.
+  Decode audio from file until all available buffers are filled.
   Should only be called if st->feed and st->chunk.cfile are both non-zero.
+
+  Return number of buffers filled with data.
 */
-static void stream_fillBuffers(StreamOV* st)
+static int stream_fillBuffers(StreamOV* st)
 {
     FaunBuffer* freeBuf;
     uint32_t excess;
+    int fillCount = 0;
     int status;
 
     while ((freeBuf = faun_processedBuffer(&st->source)))
     {
         REPORT_BUF("KR fillBuffer %ld\n", freeBuf - st->buffers);
+        ++fillCount;
 read_again:
         status = _readOgg(st, freeBuf);
         if( status & RSTAT_DATA )
@@ -1103,6 +1107,8 @@ drop_buf:
             }
         }
     }
+
+    return fillCount;
 }
 
 //----------------------------------------------------------------------------
@@ -1704,6 +1710,7 @@ read_prog:
         }
 
         // Read streams and collect their sources.
+        n = 0;
         for (i = 0; i < _streamLimit; ++i)
         {
             st = _stream + i;
@@ -1711,12 +1718,18 @@ read_prog:
             {
                 if (st->source.fade)
                     source_fade(&st->source, st);
-                if (st->feed && st->chunk.cfile)
-                    stream_fillBuffers(st);
+                if (st->feed && st->chunk.cfile) {
+                    // Decoding only one stream per loop unless some streams
+                    // have no previously filled buffer to play.
+
+                    if (n == 0 || st->source.qactive == QACTIVE_NONE)
+                        n += stream_fillBuffers(st);
+                }
                 if (st->source.qactive != QACTIVE_NONE)
                     mixSource[sourceCount++] = &st->source;
             }
         }
+        //printf("KR sbuf %d\n", n);
 
         COUNTER(tc);
 
