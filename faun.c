@@ -464,9 +464,16 @@ static void convS16_F32(float* dst, const int16_t* src, int frames, int rate,
     }
 }
 
-// Return error message or NULL if successful.
-static const char* cmd_bufferFile(FaunBuffer* buf, FILE* fp,
-                                  uint32_t offset, uint32_t size)
+/*
+  Read buffer sample data from a file.
+
+  The existing buf->sample data is freed first, so the sample.ptr must
+  be valid or NULL.
+
+  Return error message or NULL if successful.
+*/
+static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
+                                   uint32_t offset, uint32_t size)
 {
     WavHeader wh;
     const char* error = NULL;
@@ -2310,6 +2317,19 @@ void faun_program(int exec, const uint8_t* bytecode, int len)
 }
 
 
+static float _cmdSetBuffer(int bi, const FaunBuffer* buf)
+{
+    uint8_t cmd[MSG_SIZE];
+
+    cmd[0] = CMD_SET_BUFFER;
+    cmd[1] = bi;
+    memcpy(cmd+2, buf, 16);
+    tmsg_push(_voice.cmd, cmd);
+
+    return (float) buf->used / (float) buf->rate;
+}
+
+
 /**
   Load a file into a PCM buffer.
 
@@ -2319,6 +2339,8 @@ void faun_program(int exec, const uint8_t* bytecode, int len)
   \param size     Bytes to read from file. Pass zero to read to the file end.
 
   \return Duration in seconds or zero upon failure.
+
+  \sa faun_loadBufferF()
 */
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
 {
@@ -2333,19 +2355,12 @@ float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
         FILE* fp = fopen(file, "rb");
         if (fp) {
             buf.sample.ptr = NULL;
-            error = cmd_bufferFile(&buf, fp, offset, size);
-            if (error) {
+            error = faun_readBuffer(&buf, fp, offset, size);
+            if (error)
                 fprintf(_errStream, "Faun %s (%s)\n", error, file);
-            } else {
-                uint8_t cmd[MSG_SIZE];
+            else
+                duration = _cmdSetBuffer(bi, &buf);
 
-                cmd[0] = CMD_SET_BUFFER;
-                cmd[1] = bi;
-                memcpy(cmd+2, &buf, 16);
-                tmsg_push(_voice.cmd, cmd);
-
-                duration = (float) buf.used / (float) buf.rate;
-            }
             fclose(fp);
         } else {
             fprintf(_errStream, "Faun loadBuffer cannot open \"%s\"\n", file);
@@ -2363,6 +2378,8 @@ float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
   \param size     Bytes to read from file. Pass zero to read to the file end.
 
   \return Duration in seconds or zero upon failure.
+
+  \sa faun_loadBuffer()
 */
 float faun_loadBufferF(int bi, FILE* fp, uint32_t size)
 {
@@ -2373,19 +2390,11 @@ float faun_loadBufferF(int bi, FILE* fp, uint32_t size)
 
         // Load buffer in user thread.
         buf.sample.ptr = NULL;
-        error = cmd_bufferFile(&buf, fp, 0, size);
-        if (error) {
+        error = faun_readBuffer(&buf, fp, 0, size);
+        if (error)
             fprintf(_errStream, "Faun %s\n", error);
-        } else {
-            uint8_t cmd[MSG_SIZE];
-
-            cmd[0] = CMD_SET_BUFFER;
-            cmd[1] = bi;
-            memcpy(cmd+2, &buf, 16);
-            tmsg_push(_voice.cmd, cmd);
-
-            return (float) buf.used / (float) buf.rate;
-        }
+        else
+            return _cmdSetBuffer(bi, &buf);
     }
     return 0.0f;
 }
