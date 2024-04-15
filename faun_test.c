@@ -11,6 +11,8 @@
 #endif
 #include "faun.h"
 
+#define EX_NOINPUT  66  /* cannot open input */
+
 extern void faun_closeOnSignal();
 
 
@@ -88,7 +90,13 @@ int main(int argc, char** argv)
 
             case 'b':                   // Load Buffer
                 INC_ARG;
-                faun_loadBuffer(atoi(arg+2), argv[i], offset, size);
+                ch = atoi(arg+2);
+                if (! faun_loadBuffer(ch, argv[i], offset, size))
+                {
+                    fprintf(stderr, "Command -b%d failed\n", ch);
+                    faun_shutdown();
+                    return EX_NOINPUT;
+                }
                 offset = size = 0;
                 break;
 
