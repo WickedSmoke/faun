@@ -1123,10 +1123,11 @@ drop_buf:
 #define SIMUL_MIX
 
 #ifdef SIMUL_MIX
-static void _mix1Buffer(float* output, float* end, const float* input,
-                        float gainL, float gainR, int pass)
+static void _mix1Stereo(float* restrict output, float* end,
+                        const float* restrict input,
+                        float gainL, float gainR, int init)
 {
-    if (pass == 0) {
+    if (init) {
         while (output != end) {
             *output++ = *input++ * gainL;
             *output++ = *input++ * gainR;
@@ -1141,12 +1142,13 @@ static void _mix1Buffer(float* output, float* end, const float* input,
     }
 }
 
-static void _mix2Buffers(float* output, float* end, const float** input,
-                         const float* gainL, const float* gainR, int pass)
+static void _mix2Stereo(float* restrict output, float* end,
+                        const float** input,
+                        const float* gainL, const float* gainR, int init)
 {
-    const float* in0 = input[0];
-    const float* in1 = input[1];
-    if (pass == 0) {
+    const float* restrict in0 = input[0];
+    const float* restrict in1 = input[1];
+    if (init) {
         while (output != end) {
             *output++ = (*in0++ * gainL[0]) + (*in1++ * gainL[1]);
             *output++ = (*in0++ * gainR[0]) + (*in1++ * gainR[1]);
@@ -1161,14 +1163,15 @@ static void _mix2Buffers(float* output, float* end, const float** input,
     }
 }
 
-static void _mix4Buffers(float* output, float* end, const float** input,
-                         const float* gainL, const float* gainR, int pass)
+static void _mix4Stereo(float* restrict output, float* end,
+                        const float** input,
+                        const float* gainL, const float* gainR, int init)
 {
-    const float* in0 = input[0];
-    const float* in1 = input[1];
-    const float* in2 = input[2];
-    const float* in3 = input[3];
-    if (pass == 0) {
+    const float* restrict in0 = input[0];
+    const float* restrict in1 = input[1];
+    const float* restrict in2 = input[2];
+    const float* restrict in3 = input[3];
+    if (init) {
         while (output != end) {
             *output++ = (*in0++ * gainL[0]) + (*in1++ * gainL[1]) +
                         (*in2++ * gainL[2]) + (*in3++ * gainL[3]);
@@ -1192,55 +1195,48 @@ static void _mix4Buffers(float* output, float* end, const float** input,
 /*
  * Mix stereo inputs.
  *
- * Inputs with gain below GAIN_SILENCE_THRESHOLD will be skipped.
- *
  * \param output        Output buffer for the mixed samples.
  * \param input         Array of pointers to float input buffers.
- * \param inGainL       Left channel gain for each input.
- * \param inGainR       Right channel gain for each input.
+ * \param gainL         Left channel gain for each input.
+ * \param gainR         Right channel gain for each input.
  * \param inCount       Number of inputs.
  * \param sampleCount   Number of samples (frames*2) to mix from each input.
  */
 void faun_mixBuffers(float* output, const float** input,
-                     const float* inGainL, const float* inGainR,
+                     const float* gainL, const float* gainR,
                      int inCount, uint32_t sampleCount)
 {
 #ifdef SIMUL_MIX
     float* end = output + sampleCount;
-    const float* inputQ[4];
-    float gainLQ[4];
-    float gainRQ[4];
-    int i;
-    int pass = 0;
+    int initial = 1;
     int q = 0;
+    int i;
 
     for (i = 0; i < inCount; i++) {
-        if (inGainL[i] > GAIN_SILENCE_THRESHOLD ||
-            inGainR[i] > GAIN_SILENCE_THRESHOLD) {
-            inputQ[q] = input[i];
-            gainLQ[q] = inGainL[i];
-            gainRQ[q] = inGainR[i];
-            if (q == 3) {
-                q = 0;
-                _mix4Buffers(output, end, inputQ, gainLQ, gainRQ, pass++);
-            } else
-                q++;
-        }
+        if (q == 3) {
+            q = 0;
+            _mix4Stereo(output, end, input, gainL, gainR, initial);
+            initial = 0;
+            input += 4;
+            gainL += 4;
+            gainR += 4;
+        } else
+            q++;
     }
 
     switch (q) {
         case 3:
-            _mix2Buffers(output, end, inputQ, gainLQ, gainRQ, pass++);
-            _mix1Buffer(output, end, inputQ[2], gainLQ[2], gainRQ[2], pass);
+            _mix2Stereo(output, end, input, gainL, gainR, initial);
+            _mix1Stereo(output, end, input[2], gainL[2], gainR[2], 0);
             break;
         case 2:
-            _mix2Buffers(output, end, inputQ, gainLQ, gainRQ, pass);
+            _mix2Stereo(output, end, input, gainL, gainR, initial);
             break;
         case 1:
-            _mix1Buffer(output, end, inputQ[0], gainLQ[0], gainRQ[0], pass);
+            _mix1Stereo(output, end, input[0], gainL[0], gainR[0], initial);
             break;
         default:
-            if (pass == 0)
+            if (initial)
                 memset(output, 0, sampleCount * sizeof(float));
             break;
     }
@@ -1745,20 +1741,17 @@ read_prog:
         {
             // Determine size of fragment for this mix pass.
             fragmentLen = mixSampleLen - mixed;
+            n = 0;
             for (i = 0; i < sourceCount; ++i)
             {
                 src = mixSource[i];
-                if (src->qactive == QACTIVE_NONE)
-                {
-                    inputGainL[i] = 0.0f;
-                    inputGainR[i] = 0.0f;
-                }
-                else
+                if (src->qactive != QACTIVE_NONE)
                 {
                     buf = src->bufferQueue[src->qactive];
-                    input[i] = buf->sample.f32 + src->playPos*2;
-                    inputGainL[i] = GAIN_LEFT(src->pan) * src->gain;
-                    inputGainR[i] = GAIN_RIGHT(src->pan) * src->gain;
+                    input[n] = buf->sample.f32 + src->playPos*2;
+                    inputGainL[n] = GAIN_LEFT(src->pan) * src->gain;
+                    inputGainR[n] = GAIN_RIGHT(src->pan) * src->gain;
+                    ++n;
 
                     samplesAvail = buf->used - src->playPos;
                     if (samplesAvail < fragmentLen)
@@ -1773,8 +1766,7 @@ read_prog:
             REPORT_MIX("FAUN mixBuffers count:%d mixed:%4d/%d frag:%4d\n",
                        sourceCount, mixed, mixSampleLen, fragmentLen);
             faun_mixBuffers(voice->mix.sample.f32 + mixed*2,
-                            input, inputGainL, inputGainR,
-                            sourceCount, fragmentLen*2);
+                            input, inputGainL, inputGainR, n, fragmentLen*2);
 
             // Advance play positions.
             for (i = 0; i < sourceCount; ++i)
