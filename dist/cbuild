@@ -1,10 +1,6 @@
 #!/usr/bin/bash
 # Container build script for Faun Linux & Windows SDKs.
 
-if [ ! -s project.tar.gz ]; then
-    copr -a
-fi
-
 TIME=$(date +%H%M%S)
 SCRIPT=build-$TIME
 ID=${SCRIPT}
@@ -18,6 +14,10 @@ clean_dir () {
 }
 
 container_build () {
+    if [ ! -s project.tar.gz ]; then
+        copr -a
+    fi
+
     clean_dir ${ARC_DIR}
     mkdir -p ${ARC_DIR}/include ${ARC_DIR}/lib
 
@@ -76,8 +76,23 @@ linux)
     fi
     ;;
 
+deb)
+    BTOP=/home/build/debbuild
+    SARC=v${VERS}.tar.gz
+    if [ ! -s $HDIR/$SARC ]; then
+        curl -sL https://codeberg.org/wickedsmoke/faun/archive/$SARC -o $HDIR/$SARC
+    fi
+    debspec.b dist/faun.spec >$HDIR/faun.spec
+    podman run -d -it --name=$ID dev/debian12 /bin/bash || exit
+    podman cp $HDIR/faun.spec $ID:$CDIR
+    podman cp $HDIR/v${VERS}.tar.gz $ID:$BTOP/SOURCES
+    podman exec -it $ID debbuild -ba $CDIR/faun.spec
+    podman cp $ID:$BTOP/DEBS/amd64/faun_${VERS}-0debian12_amd64.deb /tmp || exit
+    podman cp $ID:$BTOP/DEBS/amd64/faun-dev_${VERS}-0debian12_amd64.deb /tmp
+    ;;
+
 *)
-    echo "Usage: $0 {linux|windows} [-b]"
+    echo "Usage: $0 {deb|linux|windows} [-b]"
     echo -e '\nOptions:'
     echo '  -b    Build binary only; do not create archive.'
     exit 1
