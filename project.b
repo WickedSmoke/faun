@@ -17,7 +17,7 @@ libfaun: [
 ]
 
 faun-dep: [
-    linux [libs [%pulse-simple %pulse %vorbisfile %pthread %m]]
+    linux [libs [%pulse %vorbisfile %pthread %m]]
     win32 [
         either msvc
             [libs_from %../usr/lib [%vorbisfile]]
