@@ -94,6 +94,7 @@ void faun_program(int ei, const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
 float faun_loadBufferF(int bi, FILE* file, uint32_t size);
+float faun_loadBufferSfx(int bi, const void* sfxParam);
 void  faun_freeBuffers(int bi, int count);
 void  faun_playSource(int si, int bi, int mode);
 

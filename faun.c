@@ -357,7 +357,28 @@ int sfx_random(int range) {
     return faun_random(&_rng) % range;
 }
 
+static void _allocBufferVoice(FaunBuffer*, int);
 static void convertMono(float*, float*, float**);
+
+static void faun_generateSfx(FaunBuffer* buf, const SfxParams* sp)
+{
+    SfxSynth* synth;
+    float* dst;
+    float* src;
+    uint32_t frames;
+
+    synth = sfx_allocSynth(SFX_F32, 44100, 6);
+    faun_randomSeed(&_rng, sp->randSeed);
+    frames = sfx_generateWave(synth, sp);
+
+    _allocBufferVoice(buf, frames);
+    dst = buf->sample.f32;
+    src = synth->samples.f;
+    convertMono(dst, dst + frames*2, &src);
+    buf->used = frames;
+
+    free(synth);
+}
 #endif
 
 #define ID_FLAC MAKE_ID('f','L','a','C')
@@ -632,27 +653,13 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
       else if (wh.idRIFF == ID_RFX_)
       {
         SfxParams sfx;
-        SfxSynth* synth;
-        float* dst;
-        float* src;
         int version = ((uint16_t*) &wh)[2];
         if (version != 200)
             error = "rFX file version not supported";
         else {
             fseek(fp, offset + 8, SEEK_SET);
-            if (fread(&sfx, 1, sizeof(SfxParams), fp) == sizeof(SfxParams)) {
-                synth = sfx_allocSynth(SFX_F32, 44100, 6);
-                faun_randomSeed(&_rng, sfx.randSeed);
-                frames = sfx_generateWave(synth, &sfx);
-
-                _allocBufferVoice(buf, frames);
-                dst = buf->sample.f32;
-                src = synth->samples.f;
-                convertMono(dst, dst + frames*2, &src);
-                buf->used = frames;
-
-                free(synth);
-            }
+            if (fread(&sfx, 1, sizeof(SfxParams), fp) == sizeof(SfxParams))
+                faun_generateSfx(buf, &sfx);
             else
                 error = "rFX fread failed";
         }
@@ -2332,7 +2339,7 @@ static float _cmdSetBuffer(int bi, const FaunBuffer* buf)
 
   \return Duration in seconds or zero upon failure.
 
-  \sa faun_loadBufferF()
+  \sa faun_loadBufferF(), faun_loadBufferSfx()
 */
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
 {
@@ -2390,6 +2397,30 @@ float faun_loadBufferF(int bi, FILE* fp, uint32_t size)
     }
     return 0.0f;
 }
+
+
+#ifdef USE_SFX_GEN
+/**
+  Load audio data generated from SfxParams into a PCM buffer.
+
+  \param bi         Buffer index.
+  \param sfxParam   SfxParams/WaveParams struct.
+
+  \return Duration in seconds or zero upon failure.
+
+  \sa faun_loadBuffer()
+*/
+float faun_loadBufferSfx(int bi, const void* sfxParam)
+{
+    if (_audioUp && bi < _bufferLimit) {
+        FaunBuffer buf;
+        buf.sample.ptr = NULL;
+        faun_generateSfx(&buf, (const SfxParams*) sfxParam);
+        return _cmdSetBuffer(bi, &buf);
+    }
+    return 0.0f;
+}
+#endif
 
 
 /**
