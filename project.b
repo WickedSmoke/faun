@@ -2,12 +2,14 @@ options [
     flac:   true    "Use foxenflac loader (GPL)"
     static: false   "Build static library"
     ftest:  false   "Build faun_test program (modifies library)"
+    load-mem: true  "Include functions to load buffers from memory"
 ]
 
 libfaun: [
     cflags "-DUSE_SFX_GEN"
     if flac  [cflags "-DUSE_FLAC"]
     if ftest [cflags "-DCAPTURE"]
+    if load-mem [cflags "-DUSE_LOAD_MEM"]
     include_from %support
     if msvc [include_from %../usr/include]
     sources [

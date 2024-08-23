@@ -485,6 +485,49 @@ static void convS16_F32(float* dst, const int16_t* src, int frames, int rate,
     }
 }
 
+#ifdef USE_LOAD_MEM
+static void convF32_F32(float* dst, const float* src, int frames, int rate,
+                        int channels)
+{
+    const float* end = src + frames * channels;
+    float ls, rs;
+
+    if (channels == 1) {
+        if (rate == 22050) {
+            for (; src != end; ++src) {
+                ls = *src;
+                *dst++ = ls;
+                *dst++ = ls;
+                *dst++ = ls;
+                *dst++ = ls;
+            }
+        } else {
+            for (; src != end; ++src) {
+                ls = *src;
+                *dst++ = ls;
+                *dst++ = ls;
+            }
+        }
+    } else if (channels >= 2) {
+        if (rate == 22050) {
+            for (; src != end; src += channels) {
+                ls = src[0];
+                rs = src[1];
+                *dst++ = ls;
+                *dst++ = rs;
+                *dst++ = ls;
+                *dst++ = rs;
+            }
+        } else {
+            for (; src != end; src += channels) {
+                *dst++ = src[0];
+                *dst++ = src[1];
+            }
+        }
+    }
+}
+#endif
+
 /*
   Read buffer sample data from a file.
 
@@ -2339,7 +2382,7 @@ static float _cmdSetBuffer(int bi, const FaunBuffer* buf)
 
   \return Duration in seconds or zero upon failure.
 
-  \sa faun_loadBufferF(), faun_loadBufferSfx()
+  \sa faun_loadBufferF(), faun_loadBufferPcm(), faun_loadBufferSfx()
 */
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size)
 {
@@ -2399,6 +2442,52 @@ float faun_loadBufferF(int bi, FILE* fp, uint32_t size)
 }
 
 
+#ifdef USE_LOAD_MEM
+/**
+  Load PCM audio data from memory into a buffer.
+
+  \param bi         Buffer index.
+  \param format     FaunFormat mask of word size, channels, & sample rate.
+  \param samples    Pointer to PCM samples.
+  \param frames     Number of frames in samples.
+
+  \return Duration in seconds or zero upon failure.
+
+  \sa faun_loadBuffer()
+*/
+float faun_loadBufferPcm(int bi, int format, const void* samples,
+                         uint32_t frames)
+{
+    if (_audioUp && bi < _bufferLimit) {
+        FaunBuffer buf;
+        uint32_t inFrames = frames;
+        int chan = (format & FAUN_FMT_STEREO) ? 2 : 1;
+        int rate;
+
+        if (format & FAUN_FMT_22050) {
+            frames *= 2;
+            rate = 22050;
+        } else {
+            rate = 44100;
+        }
+
+        buf.sample.ptr = NULL;
+        _allocBufferVoice(&buf, frames);
+        buf.used = frames;
+
+        if (format & FAUN_FMT_S16)
+            convS16_F32(buf.sample.f32, (const int16_t*) samples, inFrames,
+                        rate, chan);
+        else
+            convF32_F32(buf.sample.f32, (const float*) samples, inFrames,
+                        rate, chan);
+
+        return _cmdSetBuffer(bi, &buf);
+    }
+    return 0.0f;
+}
+
+
 #ifdef USE_SFX_GEN
 /**
   Load audio data generated from SfxParams into a PCM buffer.
@@ -2420,6 +2509,7 @@ float faun_loadBufferSfx(int bi, const void* sfxParam)
     }
     return 0.0f;
 }
+#endif
 #endif
 
 

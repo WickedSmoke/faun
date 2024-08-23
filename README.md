@@ -29,7 +29,6 @@ At this time the library does not support:
   - Sample rates other than 44100 & 22050 Hz.
   - More than two channels.
   - 3D audio.
-  - Feeding PCM data directly from memory.
 
 > _**NOTE:**_ This library is under development and the API is subject to
 > change.

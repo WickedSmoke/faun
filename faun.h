@@ -50,6 +50,15 @@ enum FaunOpcode {
 
 #define FAUN_PROGRAM_MAX    64
 
+enum FaunFormat {
+    FAUN_FMT_S16    = 1,
+    FAUN_FMT_F32    = 2,
+    FAUN_FMT_MONO   = 0,
+    FAUN_FMT_STEREO = 8,
+    FAUN_FMT_22050  = 0x10,
+    FAUN_FMT_44100  = 0x20
+};
+
 enum FaunPlayMode {
     FAUN_PLAY_ONCE      = 0x0001,
     FAUN_PLAY_LOOP      = 0x0002,
@@ -94,6 +103,8 @@ void faun_program(int ei, const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);
 float faun_loadBufferF(int bi, FILE* file, uint32_t size);
+float faun_loadBufferPcm(int bi, int format, const void* samples,
+                         uint32_t frames);
 float faun_loadBufferSfx(int bi, const void* sfxParam);
 void  faun_freeBuffers(int bi, int count);
 void  faun_playSource(int si, int bi, int mode);
