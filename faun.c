@@ -550,7 +550,7 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
 
     err = wav_readHeader(fp, &wh);
     if (err == 0) {
-        int16_t* readBuf;
+        void* readBuf;
         size_t n;
         uint32_t wavFrames;
 
@@ -558,6 +558,12 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
 
         if (wh.sampleRate != 44100 && wh.sampleRate != 22050)
             return "WAVE sample rate is unsupported";
+#ifdef USE_LOAD_MEM
+        if (wh.format == WAV_IEEE_FLOAT) {
+            if (wh.bitsPerSample != 32)
+                return "WAVE float bits per sample is not 32";
+        } else
+#endif
         if (wh.bitsPerSample != 16)
             return "WAVE bits per sample is not 16";
 
@@ -566,14 +572,20 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
             frames *= 2;
         _allocBufferVoice(buf, frames);
 
-        readBuf = (int16_t*) malloc(wh.dataSize);
+        readBuf = malloc(wh.dataSize);
         n = fread(readBuf, 1, wh.dataSize, fp);
         if (n != wh.dataSize) {
             error = "WAVE fread failed";
         } else {
             buf->used = frames;
-            convS16_F32(buf->sample.f32, readBuf, wavFrames, wh.sampleRate,
-                        wh.channels);
+#ifdef USE_LOAD_MEM
+            if (wh.format == WAV_IEEE_FLOAT)
+                convF32_F32(buf->sample.f32, (float*) readBuf, wavFrames,
+                            wh.sampleRate, wh.channels);
+            else
+#endif
+                convS16_F32(buf->sample.f32, (int16_t*) readBuf, wavFrames,
+                            wh.sampleRate, wh.channels);
         }
         free(readBuf);
     }
