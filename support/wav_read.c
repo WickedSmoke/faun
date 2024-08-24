@@ -244,3 +244,24 @@ void wav_dumpHeader( FILE* fp, const WavHeader* wh, const char* prelude,
              wav_sampleCount( wh ) );
 }
 #endif
+
+#ifdef UNIT_TEST
+// cc wav_read.c -DDEBUG -DUNIT_TEST
+int main(int argc, char** argv)
+{
+    WavHeader wh;
+    FILE* fp = fopen(argv[1], "rb");
+    if (! fp) {
+        fprintf(stderr, "Cannot open file %s\n", argv[1]);
+        return 66;  // EX_NOINPUT
+    }
+    int err = wav_readHeader(fp, &wh);
+    if (err) {
+        fprintf(stderr, "wav_readHeader error %d\n", err);
+        return 1;
+    }
+    wav_dumpHeader(stdout, &wh, "WavHeader", "");
+    fclose(fp);
+    return 0;
+}
+#endif
