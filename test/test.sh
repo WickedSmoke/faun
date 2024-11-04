@@ -124,6 +124,7 @@ ST_LB=data/voice-lb.ogg
 SO_G=data/gate_open.ogg
 SO_E=data/evade_dos.ogg
 SO_F=data/TMP_Red_Alert_Klaxon.flac
+SO_H=data/Hyperdrive_Abort.ogg
 SO_R=data/si_blink.rfx
 SO_N=data/sa_enchant.rfx
 SO_L=data/thx-lfreq.flac
@@ -148,6 +149,7 @@ capture 16 t16-mix8    "-b0 $SO_F -b1 $SO_R -b2 $SO_N -b3 $SO_G -o ca so0 vo128 
 capture 17 t17-pan     "-b0 $SO_N -o ca so0 vo220 pa-127 pb0 1 wa20 pa0 pb0 1 wa20 pa127 pb0 41 en -W"
 capture 18 t18-st-pan  "-m8 40 $ST_TO -o ca so8 vo100 pa-127 po wa20 vo255 pa-64 wa20 vo100 pa127 wa20 vo255 pa-64 wa20 vo100 pa0 wa20 fo en -W"
 capture 19 t19-st-mult "-m8 0 $ST_TO -m9 0 $ST_LB -m10 40 $SO_G -o ca so8 vo140 po so9 po so10 po en -W"
+capture 20 t20-22khz-ogg "-b0 $SO_H -o ca so0 pb0 41 en -W"
 
 fcode   30 t30-fc example/fcode01.b
 

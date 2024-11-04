@@ -613,7 +613,10 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
         {
             os.vinfo = ov_info(&os.vf, -1);
             frames = ov_pcm_total(&os.vf, -1);
-            //printf("FAUN ogg frame:%d chan:%d\n", frames, os.vinfo->channels);
+            if (os.vinfo->rate == 22050)
+                frames *= 2;
+            //printf("FAUN ogg frame:%d chan:%d rate:%ld\n",
+            //       frames, os.vinfo->channels, os.vinfo->rate);
             _allocBufferVoice(buf, frames);
             status = _readOgg(&os, buf);
             if (status != RSTAT_DATA)
