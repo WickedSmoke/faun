@@ -19,3 +19,4 @@ EXPORTS
   faun_loadBufferPcm     @17
   faun_loadBufferSfx     @18
   faun_pan               @19
+  faun_isPlaying         @20

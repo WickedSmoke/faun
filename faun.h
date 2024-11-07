@@ -71,6 +71,7 @@ enum FaunPlayMode {
 
 #define FAUN_PAIR(a,b)      (((b+1) << 10) | a)
 #define FAUN_TRIO(a,b,c)    (((c+1) << 20) | ((b+1) << 10) | a)
+#define FAUN_PID_SOURCE(pid) (pid & 0xff)
 
 enum FaunParameter {
     FAUN_VOLUME,
@@ -107,12 +108,13 @@ float faun_loadBufferPcm(int bi, int format, const void* samples,
                          uint32_t frames);
 float faun_loadBufferSfx(int bi, const void* sfxParam);
 void  faun_freeBuffers(int bi, int count);
-void  faun_playSource(int si, int bi, int mode);
-void  faun_playSourceVol(int si, int bi, int mode, float volL, float volR);
+uint32_t faun_playSource(int si, int bi, int mode);
+uint32_t faun_playSourceVol(int si, int bi, int mode, float volL, float volR);
 
-void faun_playStream(int si, const char* file, uint32_t offset,
-                     uint32_t size, int mode);
+uint32_t faun_playStream(int si, const char* file, uint32_t offset,
+                         uint32_t size, int mode);
 void faun_playStreamPart(int si, double start, double duration, int mode);
+int  faun_isPlaying(uint32_t pid);
 
 #ifdef __cplusplus
 }

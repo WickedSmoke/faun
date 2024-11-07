@@ -34,6 +34,12 @@
 #include "internal.h"
 #include "faun.h"
 
+#if __STDC_VERSION__ < 201112L || defined(__STDC_NO_ATOMICS__)
+#error "Atomic support is required for playback ids!"
+#else
+#include <stdatomic.h>
+#endif
+
 #ifdef ANDROID
 #include "sys_aaudio.c"
 #elif defined(__linux__)
@@ -82,9 +88,9 @@ typedef struct {
     uint8_t  select;
     uint16_t ext;
     union {
-        uint16_t u16[6];
-        uint32_t u32[3];
-        float f[3];
+        uint16_t u16[8];
+        uint32_t u32[4];
+        float f[4];
     } arg;
 }
 CommandA;
@@ -109,6 +115,7 @@ enum FaunCmd {
     CMD_BUFFERS_FREE,
     CMD_PLAY_SOURCE,
     CMD_PLAY_SOURCE_VOL,
+    CMD_OPEN_STREAM_SIZE,
     CMD_OPEN_STREAM,
     CMD_PLAY_STREAM_PART,
     CMD_VOLUME_VARY,
@@ -145,6 +152,7 @@ enum SourceState {
     SS_STOPPED
 };
 
+#define NUL_PLAY_ID     0
 #define QACTIVE_NONE    0xffff
 #define END_POS_NONE    0x7fffffff
 #define SOURCE_QUEUE_SIZE   4
@@ -171,7 +179,6 @@ typedef struct {
 
     float    fadePeriod;    // FAUN_FADE_PERIOD
     float    pan;
-    //uint32_t signalTime;
     uint32_t serialNo;
     uint32_t playPos;       // Frame position in current buffer.
     uint32_t framesOut;     // Total frames played.
@@ -186,7 +193,7 @@ static const uint8_t faun_formatSize[FAUN_FORMAT_COUNT] = { 1, 2, 3, 4 };
 static FILE* _errStream;
 
 
-static void faun_sourceInit(FaunSource* src, int serial)
+static void faun_sourceInit(FaunSource* src, int si)
 {
     memset(src, 0, sizeof(FaunSource));
     src->qactive = QACTIVE_NONE;
@@ -195,7 +202,7 @@ static void faun_sourceInit(FaunSource* src, int serial)
     src->volumeL = src->volumeR = 1.0f;
     src->fadePeriod = 1.5f;
     //src->pan  = 0.0f;
-    src->serialNo = serial;
+    src->serialNo = si;
     src->endPos =
     src->fadePos = END_POS_NONE;
 }
@@ -334,11 +341,14 @@ static int _bufferLimit;
 static int _sourceLimit;
 static int _streamLimit;
 static int _pexecLimit;
+static uint32_t _playSerialNo;
 static FaunVoice   _voice;
 static FaunBuffer* _abuffer = NULL;
 static FaunSource* _asource = NULL;
 static StreamOV*  _stream = NULL;
 static FaunProgram* _pexec = NULL;
+static _Atomic uint32_t* _playbackId = NULL;
+static atomic_flag _pidLock;
 
 //----------------------------------------------------------------------------
 
@@ -735,6 +745,18 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
     return error;
 }
 
+static void faun_deactivate(FaunSource* src, int si)
+{
+    src->qactive = QACTIVE_NONE;
+    src->state = SS_UNUSED;
+
+    // Clear playback id (unless an incoming command has already changed it).
+    while (atomic_flag_test_and_set(&_pidLock)) {}
+    if (_playbackId[si] == src->serialNo)
+        _playbackId[si] = NUL_PLAY_ID;
+    atomic_flag_clear(&_pidLock);
+}
+
 // Abort all sources playing a freed buffer.
 static void faun_detachBuffers()
 {
@@ -747,8 +769,7 @@ static void faun_detachBuffers()
             // will be skipped during the "Advance play positions" phase.
 
             if (! src->bufferQueue[src->qactive]->sample.ptr) {
-                src->qactive = QACTIVE_NONE;
-                src->state = SS_UNUSED;
+                faun_deactivate(src, i);
             }
         }
     }
@@ -956,7 +977,7 @@ static void signalDone(const FaunSource* src)
 {
     FaunSignal sig;
 
-    sig.id = SOURCE_ID(src);
+    sig.id = src->serialNo;
     sig.signal = FAUN_SIGNAL_DONE;
     //printf("signalDone %x\n", sig.id);
 
@@ -1054,11 +1075,14 @@ static void source_setMode(FaunSource* src, int mode)
 }
 
 
-static void cmd_playSource(int si, uint32_t bufIds, int mode)
+static void cmd_playSource(int si, uint32_t bufIds, int mode, uint32_t pid)
 {
     FaunSource* src = _asource + si;
     FaunBuffer* buf = _abuffer + (bufIds & BID_PACKED);
     uint32_t ftotal;
+
+    src->serialNo = pid;
+    assert(si == (int) FAUN_PID_SOURCE(pid));
 
     //printf("CMD source play %d buf:%x mode:%x\n", si, bufIds, mode);
     faun_setBuffer(src, buf);
@@ -1086,7 +1110,7 @@ static void cmd_playSource(int si, uint32_t bufIds, int mode)
 }
 
 
-static void cmd_playStream(int si, const FileChunk* fc, int mode)
+static void cmd_playStream(int si, const FileChunk* fc, int mode, uint32_t pid)
 {
     StreamOV* st = _stream + (si - _sourceLimit);
     assert(si >= _sourceLimit);
@@ -1108,6 +1132,9 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode)
     }
     else
     {
+        st->source.serialNo = pid;
+        assert(si == (int) FAUN_PID_SOURCE(pid));
+
         st->feed = 0;
         st->sampleCount = 0;
         st->sampleLimit = 0;
@@ -1448,7 +1475,7 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
             {
                 int mode = *pc++;
                 if (prog->si < _sourceLimit)
-                    cmd_playSource(prog->si, i, mode);
+                    cmd_playSource(prog->si, i, mode, prog->si);
             }
                 break;
 
@@ -1595,6 +1622,7 @@ static void* audioThread(void* arg)
     uint32_t fragmentLen;
     uint32_t samplesAvail;
     uint32_t mixSampleLen = voice->mix.used;
+    uint32_t fileChunkSizeArg = 0;
     int i;
     struct MsgPort* port = voice->cmd;
     MsgTime ts;
@@ -1708,23 +1736,38 @@ read_prog:
                     break;
 
                 case CMD_PLAY_SOURCE:
-                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext);
+                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext,
+                                   cmd->arg.u32[1]);
                     break;
 
                 case CMD_PLAY_SOURCE_VOL:
                     src = _asource + cmd->select;
-                    src->volumeL = cmd->arg.f[1];
-                    src->volumeR = cmd->arg.f[2];
-                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext);
+                    src->volumeL = cmd->arg.f[2];
+                    src->volumeR = cmd->arg.f[3];
+                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext,
+                                   cmd->arg.u32[1]);
+                    break;
+
+                case CMD_OPEN_STREAM_SIZE:
+                    // Save FileChunk size for the immediately following
+                    // CMD_OPEN_STREAM.
+                    fileChunkSizeArg = cmd->arg.u32[1];
                     break;
 
                 case CMD_OPEN_STREAM:
                 {
                     FileChunk fc;
-                    memcpy(&fc, cmdBuf+4, sizeof(fc));
+                    fc.offset = cmd->arg.u32[1];
+                    memcpy(&fc.cfile, &cmd->arg.u32[2], sizeof(void*));
+#if __SIZEOF_POINTER__ == 4
+                    fc.size = cmd->arg.u32[3];
+#else
+                    fc.size = fileChunkSizeArg;
+                    fileChunkSizeArg = 0;
+#endif
                     //printf("CMD open stream %d %d %d\n",
                     //       cmd->select, fc.offset, cmd->ext);
-                    cmd_playStream(cmd->select, &fc, cmd->ext);
+                    cmd_playStream(cmd->select, &fc, cmd->ext, cmd->arg.u32[0]);
                 }
                     break;
 
@@ -1921,8 +1964,7 @@ read_prog:
                     if (pos >= src->endPos)
                     {
 end_play:
-                        src->qactive = QACTIVE_NONE;
-                        src->state = SS_UNUSED;
+                        faun_deactivate(src, SOURCE_ID(src));
                         if (src->mode & FAUN_SIGNAL_DONE)
                             signalDone(src);
                     }
@@ -2051,6 +2093,9 @@ static void faun_command2(int op, int select)
   Used with faun_playSource() to queue three buffers that will be played
   sequentially.
 
+  \def FAUN_PID_SOURCE(pid)
+  Get the source index from a playback identifier.
+
 
   \enum FaunCommand
   Commands used for faun_control().
@@ -2161,7 +2206,7 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
 {
     const int DEF_UPDATE_HZ = 48;
     const char* error;
-    int i;
+    int i, siLimit;
 
     if (! appName)
         appName = "Faun Audio";
@@ -2174,6 +2219,8 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     _sourceLimit = sourceLimit = limitU(sourceLimit, SOURCE_MAX);
     _streamLimit = streamLimit = limitU(streamLimit, STREAM_MAX);
     _pexecLimit  = progLimit   = limitU(progLimit,   PEXEC_MAX);
+
+    siLimit = _sourceLimit + _streamLimit;
 
 #if 0
     printf("FaunBuffer:%ld FaunSource:%ld StreamOV:%ld FaunProgram:%ld\n",
@@ -2188,8 +2235,9 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
 
     i = bufferLimit * sizeof(FaunBuffer) +
         sourceLimit * sizeof(FaunSource) +
-        streamLimit * sizeof(StreamOV)   +
-        progLimit   * sizeof(FaunProgram);
+        streamLimit * sizeof(StreamOV) +
+        progLimit   * sizeof(FaunProgram) +
+        siLimit     * sizeof(_Atomic uint32_t);
     _abuffer = (FaunBuffer*) malloc(i);
     if (! _abuffer) {
         sysaudio_close();
@@ -2208,8 +2256,16 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     if (progLimit) {
         _pexec = (FaunProgram*) (_stream + _streamLimit);
         memset(_pexec, 0, progLimit * sizeof(FaunProgram));
-    } else
+        _playbackId = (_Atomic uint32_t*) (_pexec + progLimit);
+    } else {
         _pexec = NULL;
+        _playbackId = (_Atomic uint32_t*) (_stream + _streamLimit);
+    }
+
+    for (i = 0; i < siLimit; ++i)
+        atomic_init(_playbackId + i, NUL_PLAY_ID);
+    _playSerialNo = NUL_PLAY_ID;
+    atomic_flag_clear(&_pidLock);
 
     faun_allocBufferSamples(&_voice.mix, FAUN_F32, FAUN_CHAN_2, 44100,
                             44100 / DEF_UPDATE_HZ);
@@ -2659,6 +2715,22 @@ void faun_freeBuffers(int bi, int count)
 }
 
 
+static uint32_t faun_nextPlayId(int si)
+{
+    if (++_playSerialNo > 0xffffff)
+        _playSerialNo = 1;
+    uint32_t pid = (_playSerialNo << 8) | si;
+
+    // The playback id is set in the caller's thread so that faun_isPlaying
+    // can be used immediately after a faun_play* call.
+    while (atomic_flag_test_and_set(&_pidLock)) {}
+    _playbackId[si] = pid;
+    atomic_flag_clear(&_pidLock);
+
+    return pid;
+}
+
+
 /**
   Begin playback of a buffer from a source.
 
@@ -2666,34 +2738,44 @@ void faun_freeBuffers(int bi, int count)
   \param bi     Buffer indices.  Use the FAUN_PAIR() & FAUN_TRIO() macros to
                 queue two or three buffers.
   \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE or #FAUN_PLAY_LOOP).
+
+  \returns Opaque play identifier or zero if playback could not start.
 */
-void faun_playSource(int si, int bi, int mode)
+uint32_t faun_playSource(int si, int bi, int mode)
 {
     if( _audioUp )
     {
+        uint32_t pid = faun_nextPlayId(si);
         CommandA cmd;
         cmd.op     = CMD_PLAY_SOURCE;
         cmd.select = si;
         cmd.ext    = mode;
         cmd.arg.u32[0] = bi;
-        faun_command(&cmd, 8);
+        cmd.arg.u32[1] = pid;
+        faun_command(&cmd, 12);
+        return pid;
     }
+    return NUL_PLAY_ID;
 }
 
 
-void faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
+uint32_t faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
 {
     if( _audioUp )
     {
+        uint32_t pid = faun_nextPlayId(si);
         CommandA cmd;
         cmd.op     = CMD_PLAY_SOURCE_VOL;
         cmd.select = si;
         cmd.ext    = mode;
         cmd.arg.u32[0] = bi;
-        cmd.arg.f[1] = volL;
-        cmd.arg.f[2] = volR;
-        faun_command(&cmd, 16);
+        cmd.arg.u32[1] = pid;
+        cmd.arg.f[2] = volL;
+        cmd.arg.f[3] = volR;
+        faun_command(&cmd, 20);
+        return pid;
     }
+    return NUL_PLAY_ID;
 }
 
 
@@ -2713,31 +2795,46 @@ void faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
   \param size   Byte size of stream data in file, or zero if the entire file
                 is to be used.
   \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE, #FAUN_PLAY_LOOP, etc.).
+
+  \returns Opaque play identifier or zero if streaming could not start.
 */
-void faun_playStream(int si, const char* file, uint32_t offset, uint32_t size,
-                     int mode)
+uint32_t faun_playStream(int si, const char* file, uint32_t offset,
+                         uint32_t size, int mode)
 {
     if( _audioUp )
     {
-        FileChunk fc[2];
-        fc[1].cfile = fopen(file, "rb");
-        if (fc[1].cfile)
+        FILE* fp = fopen(file, "rb");
+        if (fp)
         {
-            // Put command header into fc[0] area.
-            uint8_t* cmd = (uint8_t*) (fc+1);
-            cmd -= 4;
-            cmd[0] = CMD_OPEN_STREAM;
-            cmd[1] = si;
-            *((uint16_t*) (cmd+2)) = mode;
+            uint32_t pid = faun_nextPlayId(si);
+            CommandA cmd;
+            cmd.op     = CMD_OPEN_STREAM;
+            cmd.select = si;
+            cmd.ext    = mode;
+            cmd.arg.u32[0] = pid;
+            cmd.arg.u32[1] = offset;
+            memcpy(&cmd.arg.u32[2], &fp, sizeof(void*));
+#if __SIZEOF_POINTER__ == 4
+            cmd.arg.u32[3] = size;
+            faun_command(&cmd, 20);
+#else
+            if (size) {
+                // Pass the size argument first in it's own message.
+                cmd.op = CMD_OPEN_STREAM_SIZE;
+                cmd.arg.u32[1] = size;
+                faun_command(&cmd, 12);
 
-            fc[1].offset = offset;
-            fc[1].size   = size;
-
-            tmsg_push(_voice.cmd, cmd);
+                cmd.op = CMD_OPEN_STREAM;
+                cmd.arg.u32[1] = offset;
+            }
+            faun_command(&cmd, 20);
+#endif
+            return pid;
         }
         else
             fprintf(_errStream, "Faun playStream cannot open \"%s\"\n", file);
     }
+    return NUL_PLAY_ID;
 }
 
 
@@ -2767,4 +2864,25 @@ void faun_playStreamPart(int si, double start, double duration, int mode)
 
         faun_command(cmdBuf, 20);
     }
+}
+
+
+/**
+  Check if a source or stream is still playing.
+
+  \param pid    Playback identifier returned by faun_playSource(),
+                faun_playSourceVol(), or faun_playStream().
+
+  \returns Non-zero if source is playing.
+*/
+int faun_isPlaying(uint32_t pid)
+{
+    if (_audioUp && pid != NUL_PLAY_ID)
+    {
+        int si = FAUN_PID_SOURCE(pid);
+        assert(si < _sourceLimit + _streamLimit);
+        if (_playbackId[si] == pid)
+           return 1;
+    }
+    return 0;
 }
