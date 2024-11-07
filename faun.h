@@ -108,6 +108,7 @@ float faun_loadBufferPcm(int bi, int format, const void* samples,
 float faun_loadBufferSfx(int bi, const void* sfxParam);
 void  faun_freeBuffers(int bi, int count);
 void  faun_playSource(int si, int bi, int mode);
+void  faun_playSourceVol(int si, int bi, int mode, float volL, float volR);
 
 void faun_playStream(int si, const char* file, uint32_t offset,
                      uint32_t size, int mode);

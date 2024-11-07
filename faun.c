@@ -108,6 +108,7 @@ enum FaunCmd {
     CMD_SET_BUFFER,
     CMD_BUFFERS_FREE,
     CMD_PLAY_SOURCE,
+    CMD_PLAY_SOURCE_VOL,
     CMD_OPEN_STREAM,
     CMD_PLAY_STREAM_PART,
     CMD_VOLUME_VARY,
@@ -1708,6 +1709,13 @@ read_prog:
                     cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext);
                     break;
 
+                case CMD_PLAY_SOURCE_VOL:
+                    src = _asource + cmd->select;
+                    src->volumeL = cmd->arg.f[1];
+                    src->volumeR = cmd->arg.f[2];
+                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext);
+                    break;
+
                 case CMD_OPEN_STREAM:
                 {
                     FileChunk fc;
@@ -2656,6 +2664,22 @@ void faun_playSource(int si, int bi, int mode)
         cmd.ext    = mode;
         cmd.arg.u32[0] = bi;
         faun_command(&cmd, 8);
+    }
+}
+
+
+void faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
+{
+    if( _audioUp )
+    {
+        CommandA cmd;
+        cmd.op     = CMD_PLAY_SOURCE_VOL;
+        cmd.select = si;
+        cmd.ext    = mode;
+        cmd.arg.u32[0] = bi;
+        cmd.arg.f[1] = volL;
+        cmd.arg.f[2] = volR;
+        faun_command(&cmd, 16);
     }
 }
 

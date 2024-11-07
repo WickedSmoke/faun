@@ -11,10 +11,11 @@ EXPORTS
   faun_loadBuffer        @9
   faun_freeBuffers       @10
   faun_playSource        @11
-  faun_playStream        @12
-  faun_playStreamPart    @13
-  faun_closeOnSignal     @14
-  faun_loadBufferF       @15
-  faun_loadBufferPcm     @16
-  faun_loadBufferSfx     @17
-  faun_pan               @18
+  faun_playSourceVol     @12
+  faun_playStream        @13
+  faun_playStreamPart    @14
+  faun_closeOnSignal     @15
+  faun_loadBufferF       @16
+  faun_loadBufferPcm     @17
+  faun_loadBufferSfx     @18
+  faun_pan               @19
