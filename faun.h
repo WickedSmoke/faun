@@ -74,7 +74,6 @@ enum FaunPlayMode {
 
 enum FaunParameter {
     FAUN_VOLUME,
-    FAUN_PAN,
     FAUN_FADE_PERIOD,
     FAUN_END_TIME,
     FAUN_PARAM_COUNT
@@ -99,6 +98,7 @@ int  faun_pollSignals(FaunSignal* sigbuf, int count);
 void faun_waitSignal(FaunSignal* sigbuf);
 void faun_control(int si, int count, int command);
 void faun_setParameter(int si, int count, uint8_t param, float value);
+void faun_pan(int si, float finalVolL, float finalVolR, float period);
 void faun_program(int ei, const uint8_t* bytecode, int len);
 
 float faun_loadBuffer(int bi, const char* file, uint32_t offset, uint32_t size);

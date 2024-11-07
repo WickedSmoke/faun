@@ -17,3 +17,4 @@ EXPORTS
   faun_loadBufferF       @15
   faun_loadBufferPcm     @16
   faun_loadBufferSfx     @17
+  faun_pan               @18

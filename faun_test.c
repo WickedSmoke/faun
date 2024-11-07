@@ -38,7 +38,7 @@ int command(const char* str)
 int param(const char* str)
 {
     static const char* paramName[FAUN_PARAM_COUNT] = {
-        "vol", "pan", "fade", "end"
+        "vol", "fade", "end"
     };
     int i;
     for (i = 0; i < FAUN_PARAM_COUNT; ++i) {
