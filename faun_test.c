@@ -1,4 +1,7 @@
 // cc -DUNIT_TEST test_stream.c -lopenal -lvorbis -lvorbisfile -lpthread
+//
+// Here is the basic usage to play an audio file and wait two seconds:
+//  ./faun_test -b0 data/some_file.wav -p0 0 1 /2
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -1089,6 +1089,7 @@ static void cmd_playSource(int si, uint32_t bufIds, int mode)
 static void cmd_playStream(int si, const FileChunk* fc, int mode)
 {
     StreamOV* st = _stream + (si - _sourceLimit);
+    assert(si >= _sourceLimit);
     stream_stop( st );
 
     st->chunk = *fc;
@@ -1131,6 +1132,7 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode)
 static void cmd_playStreamPart(int si, double start, double duration, int mode)
 {
     StreamOV* st = _stream + (si - _sourceLimit);
+    assert(si >= _sourceLimit);
 
     st->feed = 0;
     st->start = start;
@@ -2172,6 +2174,17 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     _sourceLimit = sourceLimit = limitU(sourceLimit, SOURCE_MAX);
     _streamLimit = streamLimit = limitU(streamLimit, STREAM_MAX);
     _pexecLimit  = progLimit   = limitU(progLimit,   PEXEC_MAX);
+
+#if 0
+    printf("FaunBuffer:%ld FaunSource:%ld StreamOV:%ld FaunProgram:%ld\n",
+           sizeof(FaunBuffer), sizeof(FaunSource), sizeof(StreamOV),
+           sizeof(FaunProgram));
+    // FaunBuffer:24 FaunSource:88 StreamOV:1176 FaunProgram:80
+#endif
+    assert(sizeof(FaunBuffer) % 8 == 0);
+    assert(sizeof(FaunSource) % 8 == 0);
+    assert(sizeof(StreamOV) % 8 == 0);
+    assert(sizeof(FaunProgram) % 8 == 0);
 
     i = bufferLimit * sizeof(FaunBuffer) +
         sourceLimit * sizeof(FaunSource) +
