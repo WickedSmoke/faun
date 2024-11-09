@@ -159,6 +159,7 @@ enum SourceState {
 #define SOURCE_ID(src)  (src->serialNo & 0xff)
 #define GAIN_LEFT(pan)  ((pan <= 0.0f) ? 1.0f : 1.0f - pan)
 #define GAIN_RIGHT(pan) ((pan >= 0.0f) ? 1.0f : 1.0f + pan)
+#define END_AFTER_FADE  0x8000
 
 typedef struct {
     uint16_t state;         // SourceState
@@ -1009,11 +1010,25 @@ static void source_setFadeDeltas(FaunSource* src)
 }
 
 
+/*
+  Set fadePos to (totalFrames - (fadePeriod * 44100)).
+*/
+static void source_initFadeOut(FaunSource* src, uint32_t totalFrames)
+{
+    uint32_t ff = (uint32_t) (src->fadePeriod * 44100.0f);
+    // Avoiding overlap with any fade-in.
+    if (totalFrames > 2*ff)
+        src->fadePos = totalFrames - ff;
+}
+
+
 static inline void source_fadeOut(FaunSource* src)
 {
     float inc = -FADE_DELTA(src->fadePeriod);
     src->fadeL = inc * src->volumeL;
     src->fadeR = inc * src->volumeR;
+
+    src->mode |= END_AFTER_FADE;
 }
 
 
@@ -1048,11 +1063,15 @@ static void source_fade(FaunSource* src, StreamOV* st)
         done += faun_varyGain(&src->gainL);
     if (src->fadeR)
         done += faun_varyGain(&src->gainR);
-    if (done) {
-        if (src->mode & FAUN_SIGNAL_DONE)
-            signalDone(src);
+
+    if (done && (src->mode & END_AFTER_FADE) &&
+        src->gainL == 0.0f && src->gainR == 0.0f)
+    {
         if (st)
             stream_stop(st);
+        faun_deactivate(src, SOURCE_ID(src));
+        if (src->mode & FAUN_SIGNAL_DONE)
+            signalDone(src);
     }
 }
 
@@ -1095,12 +1114,8 @@ static void cmd_playSource(int si, uint32_t bufIds, int mode, uint32_t pid)
     src->playPos = src->framesOut = 0;
     source_setMode(src, mode);
 
-    if (mode & FAUN_PLAY_FADE_OUT) {
-        uint32_t ff = (uint32_t) (src->fadePeriod * 44100.0f);
-        // Avoiding overlap with any fade-in.
-        if (ftotal > 2*ff)
-            src->fadePos = ftotal - ff;
-    }
+    if (mode & FAUN_PLAY_FADE_OUT)
+        source_initFadeOut(src, ftotal);
 
     if (mode & (FAUN_PLAY_ONCE | FAUN_PLAY_LOOP))
         src->state = SS_PLAYING;
@@ -1141,13 +1156,8 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode, uint32_t pid)
 
         source_setMode(&st->source, mode);
 
-        if (mode & FAUN_PLAY_FADE_OUT) {
-            uint32_t frames = ov_pcm_total(&st->vf, -1);
-            uint32_t ff = (uint32_t) (st->source.fadePeriod * 44100.0f);
-            // Avoiding overlap with any fade-in.
-            if (frames > 2*ff)
-                st->source.fadePos = frames - ff;
-        }
+        if (mode & FAUN_PLAY_FADE_OUT)
+            source_initFadeOut(&st->source, ov_pcm_total(&st->vf, -1));
 
         if (mode & (FAUN_PLAY_ONCE | FAUN_PLAY_LOOP))
             stream_start(st);
@@ -1891,7 +1901,8 @@ read_prog:
             {
                 if (src->fadeL || src->fadeR)
                     source_fade(src, NULL);
-                mixSource[sourceCount++] = src;
+                if (src->qactive != QACTIVE_NONE)
+                    mixSource[sourceCount++] = src;
             }
         }
 
