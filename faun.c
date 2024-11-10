@@ -172,7 +172,7 @@ typedef struct {
     // These are ordered to match gainTriplet.
     float    gainL;         // Current gain.
     float    gainR;
-    float    fadeL;         // Gain delta per update cycle.
+    float    fadeL;         // Gain delta per frame.
     float    fadeR;
     float    volumeL;       // FAUN_VOLUME, user specified gain.
     float    volumeR;
@@ -988,7 +988,7 @@ static void signalDone(const FaunSource* src)
 }
 
 
-#define FADE_DELTA(period)  ((1.0f / _voice.updateHz) / period)
+#define FADE_DELTA(vol,period)  ((vol / period) / 44100.0f)
 #define GAIN_SILENCE_THRESHOLD  0.001f
 
 /*
@@ -996,15 +996,20 @@ static void signalDone(const FaunSource* src)
 */
 static void source_setFadeDeltas(FaunSource* src)
 {
-    float inc = FADE_DELTA(src->fadePeriod);
-    float d;
+    float inc = FADE_DELTA(1.0f, src->fadePeriod);
+    //float d;
 
-    d = inc * src->volumeL;
-    src->fadeL = (src->volumeL < src->gainL) ? -d : d;
+    //d = inc * src->volumeL;
+    src->fadeL = (src->volumeL < src->gainL) ? -inc : inc;
 
-    d = inc * src->volumeR;
-    src->fadeR = (src->volumeR < src->gainR) ? -d : d;
-    //printf("KR fadeDeltas %f,%f\n", src->fadeL, src->fadeR);
+    //d = inc * src->volumeR;
+    src->fadeR = (src->volumeR < src->gainR) ? -inc : inc;
+
+#if 1
+    if (src->serialNo == 0xa07)
+    printf("KR fadeDeltas hz:%d per:%f %f,%f\n",
+           _voice.updateHz, src->fadePeriod, src->fadeL, src->fadeR);
+#endif
 }
 
 
@@ -1022,14 +1027,16 @@ static void source_initFadeOut(FaunSource* src, uint32_t totalFrames)
 
 static inline void source_fadeOut(FaunSource* src)
 {
-    float inc = -FADE_DELTA(src->fadePeriod);
-    src->fadeL = inc * src->volumeL;
-    src->fadeR = inc * src->volumeR;
+    float inc = -FADE_DELTA(1.0f, src->fadePeriod);
+    src->fadeL = inc * src->gainL;
+    src->fadeR = inc * src->gainR;
+    src->volumeL = src->volumeR = 0.0f;
 
     src->mode |= END_AFTER_FADE;
 }
 
 
+#if 0
 // Return 1 if channel becomes silent, or 0 if not.
 static int faun_varyGain(float* gainTriplet)
 {
@@ -1055,7 +1062,11 @@ static int faun_varyGain(float* gainTriplet)
 
 static void source_fade(FaunSource* src, StreamOV* st)
 {
-    //printf("KR fade 0x%x %f %f\n", src->mode, src->fadeL, src->gainL);
+#if 0
+    if (src->serialNo == 0xa07)
+    printf("KR fade %x: 0x%x g:%f f:%f v:%f\n",
+           src->serialNo, src->mode, src->gainL, src->fadeL, src->volumeL);
+#endif
     int done = 0;
     if (src->fadeL)
         done += faun_varyGain(&src->gainL);
@@ -1072,6 +1083,7 @@ static void source_fade(FaunSource* src, StreamOV* st)
             signalDone(src);
     }
 }
+#endif
 
 
 static void source_setMode(FaunSource* src, int mode)
@@ -1087,6 +1099,7 @@ static void source_setMode(FaunSource* src, int mode)
         src->gainR = src->volumeR;
         src->fadeL = src->fadeR = 0.0f;
     }
+    src->endPos =
     src->fadePos = END_POS_NONE;
 }
 
@@ -1271,6 +1284,108 @@ drop_buf:
 //----------------------------------------------------------------------------
 
 #define SIMUL_MIX
+
+static int faun_fadeChan(float* gainTriplet, int fading, int fadeMask)
+{
+    float gain   = gainTriplet[0];
+    float fade   = gainTriplet[2];
+    float target = gainTriplet[4];
+
+    gain += fade;
+    if (fade < 0.0f) {
+        if (gain <= target)
+            goto done;
+    } else if (gain >= target) {
+        goto done;
+    }
+    gainTriplet[0] = gain;
+    return fading;
+
+done:
+    gainTriplet[0] = target;
+    gainTriplet[2] = 0.0f;
+    return fading & fadeMask;
+}
+
+static void _mix1StereoFade(float* restrict output, float* end,
+                            const float* restrict input,
+                            FaunSource* src, int init)
+{
+    const int FADE_L = 1;
+    const int FADE_R = 2;
+    int fading = src->fadeL ? FADE_L : 0;
+    if (src->fadeR)
+        fading |= FADE_R;
+    assert(fading);
+
+    if (init) {
+        while (output != end) {
+            *output++ = *input++ * src->gainL;
+            *output++ = *input++ * src->gainR;
+
+            //printf("%d %d %f,%f\n",
+            //       src->serialNo & 0xff, fading, src->gainL, src->gainR);
+            if (fading & FADE_L)
+                fading = faun_fadeChan(&src->gainL, fading, ~FADE_L);
+            if (fading & FADE_R)
+                fading = faun_fadeChan(&src->gainR, fading, ~FADE_R);
+            if (! fading) {
+                if (src->mode & END_AFTER_FADE)
+                    src->endPos = src->framesOut;   // Force end of play.
+                break;
+            }
+        }
+        if (output != end) {
+            if (src->mode & END_AFTER_FADE) {
+                memset(output, 0, (end - output) * sizeof(float));
+            } else {
+                while (output != end) {
+                    *output++ = *input++ * src->gainL;
+                    *output++ = *input++ * src->gainR;
+                }
+            }
+        }
+    } else {
+        while (output != end) {
+            *output += *input++ * src->gainL;
+            output++;
+            *output += *input++ * src->gainR;
+            output++;
+
+            if (fading & FADE_L)
+                fading = faun_fadeChan(&src->gainL, fading, ~FADE_L);
+            if (fading & FADE_R)
+                fading = faun_fadeChan(&src->gainR, fading, ~FADE_R);
+            if (! fading) {
+                if (src->mode & END_AFTER_FADE)
+                    src->endPos = src->framesOut;   // Force end of play.
+                break;
+            }
+        }
+        if (output != end && (src->mode & END_AFTER_FADE) == 0) {
+            while (output != end) {
+                *output += *input++ * src->gainL;
+                output++;
+                *output += *input++ * src->gainR;
+                output++;
+            }
+        }
+    }
+}
+
+void faun_fadeBuffers(float* output, const float** inputEnd,
+                      FaunSource** src, int inCount, uint32_t sampleCount,
+                      int init)
+{
+    float* end = output + sampleCount;
+    int i;
+    for (i = 0; i < inCount; ++i) {
+        --inputEnd;
+        _mix1StereoFade(output, end, *inputEnd, src[i], init);
+        init = 0;
+    }
+}
+
 
 #ifdef SIMUL_MIX
 static void _mix1Stereo(float* restrict output, float* end,
@@ -1604,6 +1719,7 @@ static void* audioThread(void* arg)
     FaunProgram* prog;
     StreamOV* st;
     FaunSource** mixSource;
+    FaunSource** fadeSource;
     const float** input;
     float* inputGainL;
     float* inputGainR;
@@ -1622,7 +1738,8 @@ static void* audioThread(void* arg)
     MsgTime ts;
     int updateMs = 1000/voice->updateHz - 2;
     int sleepTime = updateMs;
-    int n;
+    int scount;
+    int n, fn;
 
 #ifdef CPUCOUNTER_H
     uint64_t t0, tp, tc, tm, tw;
@@ -1635,9 +1752,10 @@ static void* audioThread(void* arg)
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
 #endif
 
-    n = _sourceLimit + _streamLimit;
-    mixSource  = (FaunSource**) malloc(n * sizeof(void*) * 4);
-    input      = (const float**) (mixSource + n);
+    n = scount = _sourceLimit + _streamLimit;
+    mixSource  = (FaunSource**) malloc(n * sizeof(void*) * 5);
+    fadeSource = mixSource + n;
+    input      = (const float**) (fadeSource + n);
     inputGainL = (float*) (input + n);
     inputGainR = inputGainL + n;
 
@@ -1866,8 +1984,8 @@ read_prog:
             src = _asource + i;
             if (src->state == SS_PLAYING)
             {
-                if (src->fadeL || src->fadeR)
-                    source_fade(src, NULL);
+                //if (src->fadeL || src->fadeR)
+                //    source_fade(src, NULL);
                 if (src->qactive != QACTIVE_NONE)
                     mixSource[sourceCount++] = src;
             }
@@ -1881,8 +1999,8 @@ read_prog:
             src = _asource + st->sindex;
             if (src->state == SS_PLAYING)
             {
-                if (src->fadeL || src->fadeR)
-                    source_fade(src, st);
+                //if (src->fadeL || src->fadeR)
+                //    source_fade(src, st);
                 if (st->feed && st->chunk.cfile) {
                     // Decoding only one stream per loop unless some streams
                     // have no previously filled buffer to play.
@@ -1903,17 +2021,22 @@ read_prog:
         {
             // Determine size of fragment for this mix pass.
             fragmentLen = mixSampleLen - mixed;
-            n = 0;
+            n = fn = 0;
             for (i = 0; i < sourceCount; ++i)
             {
                 src = mixSource[i];
                 if (src->qactive != QACTIVE_NONE)
                 {
                     buf = src->bufferQueue[src->qactive];
-                    input[n] = buf->sample.f32 + src->playPos*2;
-                    inputGainL[n] = GAIN_LEFT(src->pan) * src->gainL;
-                    inputGainR[n] = GAIN_RIGHT(src->pan) * src->gainR;
-                    ++n;
+                    if (src->fadeL || src->fadeR) {
+                        fadeSource[fn++] = src;
+                        input[scount - fn] = buf->sample.f32 + src->playPos*2;
+                    } else {
+                        input[n] = buf->sample.f32 + src->playPos*2;
+                        inputGainL[n] = GAIN_LEFT(src->pan) * src->gainL;
+                        inputGainR[n] = GAIN_RIGHT(src->pan) * src->gainR;
+                        ++n;
+                    }
 
                     samplesAvail = buf->used - src->playPos;
                     if (samplesAvail < fragmentLen)
@@ -1927,8 +2050,19 @@ read_prog:
             // Mix fragment.
             REPORT_MIX("FAUN mixBuffers count:%d mixed:%4d/%d frag:%4d\n",
                        sourceCount, mixed, mixSampleLen, fragmentLen);
-            faun_mixBuffers(voice->mix.sample.f32 + mixed*2,
-                            input, inputGainL, inputGainR, n, fragmentLen*2);
+            {
+            float* voiceSamples = voice->mix.sample.f32 + mixed*2;
+            if (n) {
+                faun_mixBuffers(voiceSamples, input,
+                                inputGainL, inputGainR, n, fragmentLen*2);
+            }
+            if (fn) {
+                faun_fadeBuffers(voiceSamples, input + scount,
+                                 fadeSource, fn, fragmentLen*2, n ? 0 : 1);
+            } else if (! n) {
+                memset(voiceSamples, 0, fragmentLen*2 * sizeof(float));
+            }
+            }
 
             // Advance play positions.
             for (i = 0; i < sourceCount; ++i)
