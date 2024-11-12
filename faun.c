@@ -62,7 +62,7 @@ int endCapture = 0;
 
 #if 0
 #define REPORT_STREAM(st,msg) \
-    printf("FAUN strm %x: %s\n",st->source.serialNo,msg)
+    printf("FAUN strm %x: %s\n",_asource[st->sindex].serialNo,msg)
 #define REPORT_BUF(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define REPORT_MIX(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
@@ -303,11 +303,10 @@ static void faun_freeBufferSamples(int n, FaunBuffer* buf)
 #define SEGMENT_SET(st) st->sampleLimit
 
 typedef struct {
-    FaunSource  source;
     FaunBuffer  buffers[STREAM_BUFFERS];
     int         bufAvail;
     int16_t     feed;
-    int16_t     _pad;
+    int16_t     sindex;
     double      start;
     uint32_t    sampleCount;    // Number of samples read
     uint32_t    sampleLimit;    // Number of samples to buffer before ending
@@ -614,7 +613,6 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
         int status;
 
         // Minimal version of stream_init() to use _readOgg().
-        faun_sourceInit(&os.source, -1);
         os.sampleCount = 0;
 
         os.chunk.cfile  = fp;
@@ -780,9 +778,9 @@ static void faun_detachBuffers()
 
 static void stream_init(StreamOV* st, int id)
 {
-    faun_sourceInit(&st->source, id);
     memset(&st->buffers, 0, sizeof(FaunBuffer) * STREAM_BUFFERS);
     st->feed = 0;
+    st->sindex = id;
 
 #ifdef GLV_ASSET_H
     memset(&st->asset, 0, sizeof(struct AssetFile));
@@ -923,7 +921,7 @@ static int stream_fillBuffers(StreamOV*);
 
 static void stream_start(StreamOV* st)
 {
-    FaunSource* src = &st->source;
+    FaunSource* src = _asource + st->sindex;
     FaunBuffer* buf = st->buffers;
     int i;
 
@@ -965,7 +963,7 @@ static void stream_start(StreamOV* st)
 static void stream_stop(StreamOV* st)
 {
     REPORT_STREAM(st,"stop");
-    st->source.state = SS_STOPPED;
+    _asource[st->sindex].state = SS_STOPPED;
     st->feed = 0;
 
     if( st->chunk.cfile )
@@ -1146,7 +1144,8 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode, uint32_t pid)
     }
     else
     {
-        st->source.serialNo = pid;
+        FaunSource* src = _asource + si;
+        src->serialNo = pid;
         assert(si == (int) FAUN_PID_SOURCE(pid));
 
         st->feed = 0;
@@ -1154,10 +1153,10 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode, uint32_t pid)
         st->sampleLimit = 0;
         st->vinfo = ov_info(&st->vf, -1);
 
-        source_setMode(&st->source, mode);
+        source_setMode(src, mode);
 
         if (mode & FAUN_PLAY_FADE_OUT)
-            source_initFadeOut(&st->source, ov_pcm_total(&st->vf, -1));
+            source_initFadeOut(src, ov_pcm_total(&st->vf, -1));
 
         if (mode & (FAUN_PLAY_ONCE | FAUN_PLAY_LOOP))
             stream_start(st);
@@ -1167,6 +1166,7 @@ static void cmd_playStream(int si, const FileChunk* fc, int mode, uint32_t pid)
 
 static void cmd_playStreamPart(int si, double start, double duration, int mode)
 {
+    FaunSource* source = _asource + si;
     StreamOV* st = _stream + (si - _sourceLimit);
     assert(si >= _sourceLimit);
 
@@ -1176,9 +1176,9 @@ static void cmd_playStreamPart(int si, double start, double duration, int mode)
     st->sampleLimit = (uint32_t) (duration * _voice.mix.rate);
     //printf("KR rate %d %d\n", st->vinfo->rate, st->sampleLimit);
 
-    source_setMode(&st->source, mode);
+    source_setMode(source, mode);
 
-    st->source.state = SS_STOPPED;
+    source->state = SS_STOPPED;
 
     ov_time_seek(&st->vf, st->start);
     stream_start(st);
@@ -1193,12 +1193,13 @@ static void cmd_playStreamPart(int si, double start, double duration, int mode)
 */
 static int stream_fillBuffers(StreamOV* st)
 {
+    FaunSource* source = _asource + st->sindex;
     FaunBuffer* freeBuf;
     uint32_t excess;
     int fillCount = 0;
     int status;
 
-    while ((freeBuf = faun_processedBuffer(&st->source)))
+    while ((freeBuf = faun_processedBuffer(source)))
     {
         REPORT_BUF("KR fillBuffer %ld\n", freeBuf - st->buffers);
         ++fillCount;
@@ -1221,7 +1222,7 @@ read_again:
                 }
                 freeBuf->used -= excess;
             }
-            faun_queueBuffer(&st->source, freeBuf);
+            faun_queueBuffer(source, freeBuf);
 drop_buf:
             REPORT_BUF("    used: %d\n", freeBuf->used);
         }
@@ -1234,7 +1235,7 @@ drop_buf:
         else if( status & RSTAT_EOF )
         {
             REPORT_BUF("    end-of-stream\n");
-            if (st->source.mode & FAUN_PLAY_LOOP)
+            if (source->mode & FAUN_PLAY_LOOP)
             {
                 if (SEGMENT_SET(st))
                 {
@@ -1493,15 +1494,13 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 if (prog->si >= _sourceLimit) {
                     StreamOV* st = _stream + (prog->si - _sourceLimit);
                     if (pc[-1] == FO_STREAM_LOOP)
-                        st->source.mode |= FAUN_PLAY_LOOP;
+                        _asource[st->sindex].mode |= FAUN_PLAY_LOOP;
                     stream_start(st);
                 }
                 break;
 
             case FO_SET_VOL:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
             {
                 float vol = (float) (*pc++) / 255.0f;
                 src->gainL = src->gainR = vol;
@@ -1510,24 +1509,18 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 break;
 
             case FO_SET_PAN:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
                 src->pan = (float) *((int8_t*) pc) / 127.0f;
                 pc++;
                 break;
 
             case FO_SET_FADE:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
                 src->fadePeriod = (float) (*pc++) / 10.0f;
                 break;
 
             case FO_SET_END:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
             {
                 uint32_t pos = *pc++;
                 _asource[prog->si].endPos = pos ? pos * 4410 : END_POS_NONE;
@@ -1536,9 +1529,7 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
 
             case FO_LOOP_ON:
             case FO_LOOP_OFF:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
             {
                 uint16_t mode = src->mode & ~(FAUN_PLAY_ONCE | FAUN_PLAY_LOOP);
                 if (pc[-1] == FO_LOOP_ON)
@@ -1550,9 +1541,7 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
             /*
             case FO_FADE_ON:
             case FO_FADE_OFF:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
             {
                 uint16_t mode = src->mode & ~FAUN_PLAY_FADE;
                 if (pc[-1] == FO_FADE_ON)
@@ -1563,17 +1552,13 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
             */
 
             case FO_FADE_IN:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
                 src->gainL = src->gainR = 0.0f;
                 source_setFadeDeltas(src);
                 break;
 
             case FO_FADE_OUT:
-                i = prog->si;
-                src = (i < _sourceLimit) ? _asource + i
-                                         : &_stream[i - _sourceLimit].source;
+                src = _asource + prog->si;
                 source_fadeOut(src);
                 break;
 
@@ -1791,11 +1776,7 @@ read_prog:
                     break;
 
                 case CMD_VOLUME_VARY:
-                    i = cmd->select;
-                    if (i < _sourceLimit)
-                        src = _asource + i;
-                    else
-                        src = &_stream[i - _sourceLimit].source;
+                    src = _asource + cmd->select;
                     src->volumeL    = cmd->arg.f[0];
                     src->volumeR    = cmd->arg.f[1];
                     src->fadePeriod = cmd->arg.f[2];
@@ -1814,10 +1795,7 @@ read_prog:
                     i = cmd->select;
                     n = i + cmd->ext;
                     for ( ; i < n; ++i) {
-                        if (i < _sourceLimit)
-                            src = _asource + i;
-                        else
-                            src = &_stream[i - _sourceLimit].source;
+                        src = _asource + i;
                         if (src->qactive != QACTIVE_NONE) {
                             src->state = (cmd->op == CMD_CON_STOP) ?
                                             SS_STOPPED : SS_PLAYING;
@@ -1831,10 +1809,7 @@ read_prog:
                     i = cmd->select;
                     n = i + cmd->ext;
                     for ( ; i < n; ++i) {
-                        if (i < _sourceLimit)
-                            src = _asource + i;
-                        else
-                            src = &_stream[i - _sourceLimit].source;
+                        src = _asource + i;
                         source_fadeOut(src);
                     }
                     break;
@@ -1849,10 +1824,7 @@ read_prog:
                     i = cmd->select;
                     n = i + cmd->ext;
                     for ( ; i < n; ++i) {
-                        if (i < _sourceLimit)
-                            src = _asource + i;
-                        else
-                            src = &_stream[i - _sourceLimit].source;
+                        src = _asource + i;
                         if (pi == FAUN_VOLUME) {
                             src->gainL = src->gainR =
                             src->volumeL = src->volumeR = cmd->arg.f[0];
@@ -1864,12 +1836,7 @@ read_prog:
                     break;
 
                 case CMD_PARAM_END_TIME:
-                    n = cmd->select;
-                    if (n < _sourceLimit)
-                        src = _asource + n;
-                    else
-                        src = &_stream[n - _sourceLimit].source;
-
+                    src = _asource + cmd->select;
                     if (cmd->arg.f[0] <= 0.01f)
                         src->endPos = END_POS_NONE;
                     else
@@ -1911,19 +1878,20 @@ read_prog:
         for (i = 0; i < _streamLimit; ++i)
         {
             st = _stream + i;
-            if (st->source.state == SS_PLAYING)
+            src = _asource + st->sindex;
+            if (src->state == SS_PLAYING)
             {
-                if (st->source.fadeL || st->source.fadeR)
-                    source_fade(&st->source, st);
+                if (src->fadeL || src->fadeR)
+                    source_fade(src, st);
                 if (st->feed && st->chunk.cfile) {
                     // Decoding only one stream per loop unless some streams
                     // have no previously filled buffer to play.
 
-                    if (n == 0 || st->source.qactive == QACTIVE_NONE)
+                    if (n == 0 || src->qactive == QACTIVE_NONE)
                         n += stream_fillBuffers(st);
                 }
-                if (st->source.qactive != QACTIVE_NONE)
-                    mixSource[sourceCount++] = &st->source;
+                if (src->qactive != QACTIVE_NONE)
+                    mixSource[sourceCount++] = src;
             }
         }
         //printf("KR sbuf %d\n", n);
@@ -2242,7 +2210,7 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     assert(sizeof(FaunProgram) % 8 == 0);
 
     i = bufferLimit * sizeof(FaunBuffer) +
-        sourceLimit * sizeof(FaunSource) +
+        siLimit     * sizeof(FaunSource) +
         streamLimit * sizeof(StreamOV) +
         progLimit   * sizeof(FaunProgram) +
         siLimit     * sizeof(_Atomic uint32_t);
@@ -2253,10 +2221,10 @@ const char* faun_startup(int bufferLimit, int sourceLimit, int streamLimit,
     }
 
     _asource = (FaunSource*) (_abuffer + bufferLimit);
-    _stream  = (StreamOV*)  (_asource + _sourceLimit);
+    _stream  = (StreamOV*)  (_asource + siLimit);
 
     memset(_abuffer, 0, bufferLimit * sizeof(FaunBuffer));
-    for (i = 0; i < sourceLimit; ++i)
+    for (i = 0; i < siLimit; ++i)
         faun_sourceInit(_asource + i, i);
     for (i = 0; i < streamLimit; ++i)
         stream_init(_stream + i, sourceLimit + i);
