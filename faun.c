@@ -1308,8 +1308,7 @@ done:
 }
 
 static void _mix1StereoFade(float* restrict output, float* end,
-                            const float* restrict input,
-                            FaunSource* src, int init)
+                            const float* restrict input, FaunSource* src)
 {
     const int FADE_L = 1;
     const int FADE_R = 2;
@@ -1318,71 +1317,40 @@ static void _mix1StereoFade(float* restrict output, float* end,
         fading |= FADE_R;
     assert(fading);
 
-    if (init) {
-        while (output != end) {
-            *output++ = *input++ * src->gainL;
-            *output++ = *input++ * src->gainR;
+    while (output != end) {
+        *output += *input++ * src->gainL;
+        output++;
+        *output += *input++ * src->gainR;
+        output++;
 
-            //printf("%d %d %f,%f\n",
-            //       src->serialNo & 0xff, fading, src->gainL, src->gainR);
-            if (fading & FADE_L)
-                fading = faun_fadeChan(&src->gainL, fading, ~FADE_L);
-            if (fading & FADE_R)
-                fading = faun_fadeChan(&src->gainR, fading, ~FADE_R);
-            if (! fading) {
-                if (src->mode & END_AFTER_FADE)
-                    src->endPos = src->framesOut;   // Force end of play.
-                break;
-            }
-        }
-        if (output != end) {
+        if (fading & FADE_L)
+            fading = faun_fadeChan(&src->gainL, fading, ~FADE_L);
+        if (fading & FADE_R)
+            fading = faun_fadeChan(&src->gainR, fading, ~FADE_R);
+        if (! fading) {
             if (src->mode & END_AFTER_FADE) {
-                memset(output, 0, (end - output) * sizeof(float));
+                src->endPos = src->framesOut;   // Force end of play.
             } else {
                 while (output != end) {
-                    *output++ = *input++ * src->gainL;
-                    *output++ = *input++ * src->gainR;
+                    *output += *input++ * src->gainL;
+                    output++;
+                    *output += *input++ * src->gainR;
+                    output++;
                 }
             }
-        }
-    } else {
-        while (output != end) {
-            *output += *input++ * src->gainL;
-            output++;
-            *output += *input++ * src->gainR;
-            output++;
-
-            if (fading & FADE_L)
-                fading = faun_fadeChan(&src->gainL, fading, ~FADE_L);
-            if (fading & FADE_R)
-                fading = faun_fadeChan(&src->gainR, fading, ~FADE_R);
-            if (! fading) {
-                if (src->mode & END_AFTER_FADE)
-                    src->endPos = src->framesOut;   // Force end of play.
-                break;
-            }
-        }
-        if (output != end && (src->mode & END_AFTER_FADE) == 0) {
-            while (output != end) {
-                *output += *input++ * src->gainL;
-                output++;
-                *output += *input++ * src->gainR;
-                output++;
-            }
+            break;
         }
     }
 }
 
 void faun_fadeBuffers(float* output, const float** inputEnd,
-                      FaunSource** src, int inCount, uint32_t sampleCount,
-                      int init)
+                      FaunSource** src, int inCount, uint32_t sampleCount)
 {
     float* end = output + sampleCount;
     int i;
     for (i = 0; i < inCount; ++i) {
         --inputEnd;
-        _mix1StereoFade(output, end, *inputEnd, src[i], init);
-        init = 0;
+        _mix1StereoFade(output, end, *inputEnd, src[i]);
     }
 }
 
@@ -2052,15 +2020,11 @@ read_prog:
                        sourceCount, mixed, mixSampleLen, fragmentLen);
             {
             float* voiceSamples = voice->mix.sample.f32 + mixed*2;
-            if (n) {
-                faun_mixBuffers(voiceSamples, input,
-                                inputGainL, inputGainR, n, fragmentLen*2);
-            }
+            faun_mixBuffers(voiceSamples, input,
+                            inputGainL, inputGainR, n, fragmentLen*2);
             if (fn) {
                 faun_fadeBuffers(voiceSamples, input + scount,
-                                 fadeSource, fn, fragmentLen*2, n ? 0 : 1);
-            } else if (! n) {
-                memset(voiceSamples, 0, fragmentLen*2 * sizeof(float));
+                                 fadeSource, fn, fragmentLen*2);
             }
             }
 
