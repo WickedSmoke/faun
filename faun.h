@@ -16,8 +16,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define FAUN_VERSION_STR    "0.1.5"
-#define FAUN_VERSION        0x000105
+#define FAUN_VERSION_STR    "0.2.0"
+#define FAUN_VERSION        0x000200
 
 enum FaunCommand {
     FC_START,
