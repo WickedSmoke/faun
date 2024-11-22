@@ -157,8 +157,9 @@ enum SourceState {
 #define SOURCE_QUEUE_SIZE   4
 #define BID_PACKED      0x3ff
 #define SOURCE_ID(src)  (src->serialNo & 0xff)
-#define GAIN_LEFT(pan)  ((pan <= 0.0f) ? 1.0f : 1.0f - pan)
-#define GAIN_RIGHT(pan) ((pan >= 0.0f) ? 1.0f : 1.0f + pan)
+
+// Internal FaunPlayMode flags
+#define PLAY_TARGET_VOL 0x4000
 #define END_AFTER_FADE  0x8000
 
 typedef struct {
@@ -169,16 +170,16 @@ typedef struct {
     uint16_t qactive;       // Queue index of currently playing buffer.
     uint16_t mode;
 
-    // These are ordered to match gainTriplet.
-    float    gainL;         // Current gain.
+    // These are ordered to match fadeTriplet.
+    float    gainL;         // Current volume.
     float    gainR;
     float    fadeL;         // Gain delta per frame.
     float    fadeR;
-    float    volumeL;       // FAUN_VOLUME, user specified gain.
-    float    volumeR;
+    float    targetL;       // Target volume.
+    float    targetR;
 
+    float    playVolume;    // FAUN_VOLUME, used when play begins.
     float    fadePeriod;    // FAUN_FADE_PERIOD
-    float    pan;
     uint32_t serialNo;
     uint32_t playPos;       // Frame position in current buffer.
     uint32_t framesOut;     // Total frames played.
@@ -199,9 +200,9 @@ static void faun_sourceInit(FaunSource* src, int si)
     src->qactive = QACTIVE_NONE;
     src->gainL = src->gainR = 1.0f;
     //src->fadeL = src->fadeR = 0.0f;
-    src->volumeL = src->volumeR = 1.0f;
+    src->targetL = src->targetR =
+    src->playVolume = 1.0f;
     src->fadePeriod = 1.5f;
-    //src->pan  = 0.0f;
     src->serialNo = si;
     src->endPos =
     src->fadePos = END_POS_NONE;
@@ -996,17 +997,24 @@ static void signalDone(const FaunSource* src)
 */
 static void source_setFadeDeltas(FaunSource* src)
 {
-    float inc = FADE_DELTA(1.0f, src->fadePeriod);
-    //float d;
-
-    //d = inc * src->volumeL;
-    src->fadeL = (src->volumeL < src->gainL) ? -inc : inc;
-
-    //d = inc * src->volumeR;
-    src->fadeR = (src->volumeR < src->gainR) ? -inc : inc;
-
+    if (src->fadePeriod) {
+        float inc = FADE_DELTA(1.0f, src->fadePeriod);
 #if 1
-    if (src->serialNo == 0xa07)
+        src->fadeL = inc * (src->targetL - src->gainL);
+        src->fadeR = inc * (src->targetR - src->gainR);
+#else
+        src->fadeL = (src->targetL < src->gainL) ? -inc * src->gainL
+                                                 :  inc * src->targetL;
+        src->fadeR = (src->targetR < src->gainR) ? -inc * src->gainR
+                                                 :  inc * src->targetR;
+#endif
+    } else {
+        src->gainL = src->targetL;
+        src->gainR = src->targetR;
+        src->fadeL = src->fadeR = 0.0f;
+    }
+
+#if 0
     printf("KR fadeDeltas hz:%d per:%f %f,%f\n",
            _voice.updateHz, src->fadePeriod, src->fadeL, src->fadeR);
 #endif
@@ -1030,60 +1038,10 @@ static inline void source_fadeOut(FaunSource* src)
     float inc = -FADE_DELTA(1.0f, src->fadePeriod);
     src->fadeL = inc * src->gainL;
     src->fadeR = inc * src->gainR;
-    src->volumeL = src->volumeR = 0.0f;
+    src->targetL = src->targetR = 0.0f;
 
     src->mode |= END_AFTER_FADE;
 }
-
-
-#if 0
-// Return 1 if channel becomes silent, or 0 if not.
-static int faun_varyGain(float* gainTriplet)
-{
-    float gain = gainTriplet[0];
-    float fade = gainTriplet[2];
-
-    gain += fade;
-    if (fade > 0.0f) {
-        float target = gainTriplet[4];
-        if (gain >= target) {
-            gain = target;
-            gainTriplet[2] = 0.0f;  // Zero fadeL/fadeR
-        }
-    } else if (gain <= GAIN_SILENCE_THRESHOLD) {
-        gainTriplet[0] = 0.0f;      // Zero gainL/gainR
-        gainTriplet[2] = 0.0f;      // Zero fadeL/fadeR
-        return 1;
-    }
-    gainTriplet[0] = gain;
-    return 0;
-}
-
-
-static void source_fade(FaunSource* src, StreamOV* st)
-{
-#if 0
-    if (src->serialNo == 0xa07)
-    printf("KR fade %x: 0x%x g:%f f:%f v:%f\n",
-           src->serialNo, src->mode, src->gainL, src->fadeL, src->volumeL);
-#endif
-    int done = 0;
-    if (src->fadeL)
-        done += faun_varyGain(&src->gainL);
-    if (src->fadeR)
-        done += faun_varyGain(&src->gainR);
-
-    if (done && (src->mode & END_AFTER_FADE) &&
-        src->gainL == 0.0f && src->gainR == 0.0f)
-    {
-        if (st)
-            stream_stop(st);
-        faun_deactivate(src, SOURCE_ID(src));
-        if (src->mode & FAUN_SIGNAL_DONE)
-            signalDone(src);
-    }
-}
-#endif
 
 
 static void source_setMode(FaunSource* src, int mode)
@@ -1092,11 +1050,15 @@ static void source_setMode(FaunSource* src, int mode)
 
     if (mode & FAUN_PLAY_FADE_IN) {
         src->gainL = src->gainR = 0.0f;
+        src->targetL = src->targetR = src->playVolume;
         source_setFadeDeltas(src);
-    } else {
+    } else if (mode & PLAY_TARGET_VOL) {
         // Reset after any previous fade out.
-        src->gainL = src->volumeL;
-        src->gainR = src->volumeR;
+        src->gainL = src->targetL;
+        src->gainR = src->targetR;
+        src->fadeL = src->fadeR = 0.0f;
+    } else {
+        src->gainL = src->gainR = src->playVolume;
         src->fadeL = src->fadeR = 0.0f;
     }
     src->endPos =
@@ -1285,11 +1247,11 @@ drop_buf:
 
 #define SIMUL_MIX
 
-static int faun_fadeChan(float* gainTriplet, int fading, int fadeMask)
+static int faun_fadeChan(float* fadeTriplet, int fading, int fadeMask)
 {
-    float gain   = gainTriplet[0];
-    float fade   = gainTriplet[2];
-    float target = gainTriplet[4];
+    float gain   = fadeTriplet[0];
+    float fade   = fadeTriplet[2];
+    float target = fadeTriplet[4];
 
     gain += fade;
     if (fade < 0.0f) {
@@ -1298,12 +1260,12 @@ static int faun_fadeChan(float* gainTriplet, int fading, int fadeMask)
     } else if (gain >= target) {
         goto done;
     }
-    gainTriplet[0] = gain;
+    fadeTriplet[0] = gain;
     return fading;
 
 done:
-    gainTriplet[0] = target;
-    gainTriplet[2] = 0.0f;
+    fadeTriplet[0] = target;
+    fadeTriplet[2] = 0.0f;
     return fading & fadeMask;
 }
 
@@ -1527,7 +1489,6 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
     const uint8_t* pc;
     const uint8_t* end;
     FaunSource* src;
-    int i;
 
     if (prog->waitPos) {
         if (mixClock < prog->waitPos)
@@ -1564,37 +1525,28 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 break;
 
             case FO_PLAY_BUF:
-                i = *pc++;
-            {
-                int mode = *pc++;
                 if (prog->si < _sourceLimit)
-                    cmd_playSource(prog->si, i, mode, prog->si);
-            }
+                    cmd_playSource(prog->si, pc[0], pc[1], prog->si);
+                pc += 2;
                 break;
 
             case FO_STREAM_ONCE:
             case FO_STREAM_LOOP:
                 if (prog->si >= _sourceLimit) {
-                    StreamOV* st = _stream + (prog->si - _sourceLimit);
+                    int mode;
+                    src = _asource + prog->si;
+                    mode = src->mode;
                     if (pc[-1] == FO_STREAM_LOOP)
-                        _asource[st->sindex].mode |= FAUN_PLAY_LOOP;
-                    stream_start(st);
+                        mode |= FAUN_PLAY_LOOP;
+                    source_setMode(src, mode);
+                    stream_start(_stream + (prog->si - _sourceLimit));
                 }
                 break;
 
             case FO_SET_VOL:
+                // Set playVolume parameter; current volume is not changed.
                 src = _asource + prog->si;
-            {
-                float vol = (float) (*pc++) / 255.0f;
-                src->gainL = src->gainR = vol;
-                src->volumeL = src->volumeR = vol;
-            }
-                break;
-
-            case FO_SET_PAN:
-                src = _asource + prog->si;
-                src->pan = (float) *((int8_t*) pc) / 127.0f;
-                pc++;
+                src->playVolume = (float) (*pc++) / 255.0f;
                 break;
 
             case FO_SET_FADE:
@@ -1637,12 +1589,31 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
             case FO_FADE_IN:
                 src = _asource + prog->si;
                 src->gainL = src->gainR = 0.0f;
+                src->targetL = src->targetR = src->playVolume;
                 source_setFadeDeltas(src);
                 break;
 
             case FO_FADE_OUT:
                 src = _asource + prog->si;
                 source_fadeOut(src);
+                break;
+
+            case FO_VOL_LR:     // L volume, R volume
+                // Immediately set current volumes.
+                src = _asource + prog->si;
+                src->gainL = (float) pc[0] / 255.0f;
+                src->gainR = (float) pc[1] / 255.0f;
+                src->fadeL = src->fadeR = 0.0f;
+                pc += 2;
+                break;
+
+            case FO_PAN:        // L target, R target
+                // Fade current volumes to target volumes over fadePeriod.
+                src = _asource + prog->si;
+                src->targetL = (float) pc[0] / 255.0f;
+                src->targetR = (float) pc[1] / 255.0f;
+                source_setFadeDeltas(src);
+                pc += 2;
                 break;
 
             case FO_SIGNAL:
@@ -1816,15 +1787,17 @@ read_prog:
                     break;
 
                 case CMD_PLAY_SOURCE:
+                    src = _asource + cmd->select;
                     cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext,
                                    cmd->arg.u32[1]);
                     break;
 
                 case CMD_PLAY_SOURCE_VOL:
                     src = _asource + cmd->select;
-                    src->volumeL = cmd->arg.f[2];
-                    src->volumeR = cmd->arg.f[3];
-                    cmd_playSource(cmd->select, cmd->arg.u32[0], cmd->ext,
+                    src->targetL = cmd->arg.f[2];
+                    src->targetR = cmd->arg.f[3];
+                    cmd_playSource(cmd->select, cmd->arg.u32[0],
+                                   cmd->ext | PLAY_TARGET_VOL,
                                    cmd->arg.u32[1]);
                     break;
 
@@ -1863,16 +1836,10 @@ read_prog:
 
                 case CMD_VOLUME_VARY:
                     src = _asource + cmd->select;
-                    src->volumeL    = cmd->arg.f[0];
-                    src->volumeR    = cmd->arg.f[1];
+                    src->targetL    = cmd->arg.f[0];
+                    src->targetR    = cmd->arg.f[1];
                     src->fadePeriod = cmd->arg.f[2];
-                    if (src->fadePeriod)
-                        source_setFadeDeltas(src);
-                    else {
-                        src->gainL = src->volumeL;
-                        src->gainR = src->volumeR;
-                        src->fadeL = src->fadeR = 0.0f;
-                    }
+                    source_setFadeDeltas(src);
                     break;
 
                 case CMD_CON_START:
@@ -1901,24 +1868,23 @@ read_prog:
                     break;
 
                 case CMD_PARAM_VOLUME:
-                case CMD_PARAM_FADE_PERIOD:
-                {
-                    int pi = cmd->op - CMD_PARAM_VOLUME;
-
-                    //printf("CMD param %d:%d %d %f\n",
-                    //       cmd->select, cmd->ext, pi, cmd->arg.f[0]);
-                    i = cmd->select;
-                    n = i + cmd->ext;
-                    for ( ; i < n; ++i) {
-                        src = _asource + i;
-                        if (pi == FAUN_VOLUME) {
-                            src->gainL = src->gainR =
-                            src->volumeL = src->volumeR = cmd->arg.f[0];
-                        } else {
-                            src->fadePeriod = cmd->arg.f[0];
-                        }
+                    //printf("CMD param-vol %d:%d %f\n",
+                    //       cmd->select, cmd->ext, cmd->arg.f[0]);
+                    src = _asource + cmd->select;
+                    n = cmd->ext;
+                    while (n--) {
+                        src->playVolume = cmd->arg.f[0];
+                        ++src;
                     }
-                }
+                    break;
+
+                case CMD_PARAM_FADE_PERIOD:
+                    src = _asource + cmd->select;
+                    n = cmd->ext;
+                    while (n--) {
+                        src->fadePeriod = cmd->arg.f[0];
+                        ++src;
+                    }
                     break;
 
                 case CMD_PARAM_END_TIME:
@@ -2001,8 +1967,8 @@ read_prog:
                         input[scount - fn] = buf->sample.f32 + src->playPos*2;
                     } else {
                         input[n] = buf->sample.f32 + src->playPos*2;
-                        inputGainL[n] = GAIN_LEFT(src->pan) * src->gainL;
-                        inputGainR[n] = GAIN_RIGHT(src->pan) * src->gainR;
+                        inputGainL[n] = src->gainL;
+                        inputGainR[n] = src->gainR;
                         ++n;
                     }
 
@@ -2225,6 +2191,7 @@ static void faun_command2(int op, int select)
   They are modified using faun_setParameter().
 
   \var FaunParameter::FAUN_VOLUME
+  This is the volume (or fade in target) used when playback begins.
   The value ranges from 0.0 to 1.0.  The default value is 1.0.
 
   \var FaunParameter::FAUN_FADE_PERIOD
@@ -2531,7 +2498,7 @@ void faun_controlSeq(int si, int count, const uint8_t* commands)
 */
 void faun_setParameter(int si, int count, uint8_t param, float value)
 {
-    if( _audioUp && param < FAUN_PARAM_COUNT)
+    if( _audioUp && count > 0 && param < FAUN_PARAM_COUNT)
     {
         CommandA cmd;
         cmd.op     = CMD_PARAM_VOLUME + param;

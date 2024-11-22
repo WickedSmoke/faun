@@ -216,7 +216,9 @@ int main(int argc, char** argv)
                                         // pb - Play buffer & set mode
                                         // pa - Pan
                     if (arg[1] == 'a') {
-                        PUSH_OP_ARG(FO_SET_PAN);
+                        PUSH_OP_ARG(FO_PAN);
+                        INC_ARG;
+                        *pc++ = atoi(argv[i]);
                     } else if (arg[1] == 'l')
                         *pc++ = FO_STREAM_LOOP;
                     else if (arg[1] == 'o')
@@ -236,8 +238,15 @@ int main(int argc, char** argv)
                     PUSH_OP_ARG(FO_SOURCE);
                     break;
 
-                case 'v':               // vo - Volume
-                    PUSH_OP_ARG(FO_SET_VOL);
+                case 'v':               // vo - Volume Parameter
+                                        // vc - Volume LR channels
+                    if (arg[1] == 'o') {
+                        PUSH_OP_ARG(FO_SET_VOL);
+                    } else {
+                        PUSH_OP_ARG(FO_VOL_LR);
+                        INC_ARG;
+                        *pc++ = atoi(argv[i]);
+                    }
                     break;
 
                 case 'w':               // wa - Wait 1/10 sec.
