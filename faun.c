@@ -2511,7 +2511,7 @@ void faun_setParameter(int si, int count, uint8_t param, float value)
 
 
 /**
-  Change volume of sterio channels over a period of time.
+  Change volume of stereo channels over a period of time.
 
   \param si         Source or stream index.
   \param finalVolL  Target volume for left channel.
@@ -2775,12 +2775,18 @@ static uint32_t faun_nextPlayId(int si)
 /**
   Begin playback of a buffer from a source.
 
+  The volume is set to either the current #FAUN_VOLUME parameter or 0.0 if
+  mode includes #FAUN_PLAY_FADE_IN.
+  To change the volume after playing has started use faun_pan().
+
   \param si     Source index.
   \param bi     Buffer indices.  Use the FAUN_PAIR() & FAUN_TRIO() macros to
                 queue two or three buffers.
   \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE or #FAUN_PLAY_LOOP).
 
   \returns Opaque play identifier or zero if playback could not start.
+
+  \sa faun_playSourceVol()
 */
 uint32_t faun_playSource(int si, int bi, int mode)
 {
@@ -2800,6 +2806,23 @@ uint32_t faun_playSource(int si, int bi, int mode)
 }
 
 
+/**
+  Begin playback of a buffer from a source and set channel volumes.
+
+  This is similar to faun_playSource(), but the volume arguments override
+  the #FAUN_VOLUME parameter setting.
+
+  \param si     Source index.
+  \param bi     Buffer indices.  Use the FAUN_PAIR() & FAUN_TRIO() macros to
+                queue two or three buffers.
+  \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE or #FAUN_PLAY_LOOP).
+  \param volL   Volume of left channel (0.0 to 1.0).
+  \param volR   Volume of right channel (0.0 to 1.0).
+
+  \returns Opaque play identifier or zero if playback could not start.
+
+  \sa faun_playSource()
+*/
 uint32_t faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
 {
     if( _audioUp )

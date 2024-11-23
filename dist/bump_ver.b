@@ -4,6 +4,7 @@ files: [
     %Makefile           ["faun.so.$v"]
     %project.b          ["%faun $c"]
     %dist/cbuild        ["VERS=$v"]
+    %dist/Doxyfile      ["= $v"]
     %dist/faun.spec     ["Version: $v"]
     %jni/build-sdk.sh   ["-$v"]
     /* */
