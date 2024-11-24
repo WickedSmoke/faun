@@ -12,8 +12,8 @@ faun-compile: func [blk block!] [
       | 'si int!        (appair bc 2 second tok)
       | 'queue int!     (appair bc 3 second tok)
       | 'play int!      (append bc reduce [4 second tok 0x1])
-      | 'stream         (append bc 5)
-      | 'stream-loop    (append bc 6)
+      | 'stream         (appair bc 5 1)
+     ;| 'reserved       (append bc 6)
       | 'set-vol  double! (appair bc 7 unit-val second tok)
       | 'set-fade double! (appair bc 8 to-int mul 10.0 second tok)
       | 'fade-in        (append bc 12)
@@ -22,11 +22,13 @@ faun-compile: func [blk block!] [
       | 'pan    double! double! (append bc 15 vol-pair bc second tok third tok)
       | 'signal         (append bc 16)
       | 'capture        (append bc 17)
-      | path! int! (
+      | path! opt int! (
             b: to-block first tok
+            stype: first b
             forall b [
                 switch first b [
-                    'play     [mode: 1]     ; Must be first!
+                    'play     [mode: 1]     ; Play or stream must be first!
+                    'stream   [mode: 1]
                     'loop     [mode: or 2 and mode complement 1]
                     'fade-in  [mode: or mode 0x10]
                     'fade-out [mode: or mode 0x20]
@@ -35,7 +37,15 @@ faun-compile: func [blk block!] [
                     [error "Invalid play option"]
                 ]
             ]
-            append bc reduce [4 second tok mode]
+            case [
+                all [eq? 'play stype int? second tok] [
+                    append bc reduce [4 second tok mode]
+                ]
+                eq? 'stream stype [
+                    appair bc 5 mode
+                ]
+                [error "Invalid play path!"]
+            ]
         )
     ]]
         [error "Invalid Faun program"]
@@ -50,8 +60,8 @@ bc-arguments: func [bc binary!] [
             2 [prin " so" ++ bc prin first bc]
             3 [prin " qu" ++ bc prin first bc]
             4 [prin " pb" prin [second bc to-hex third bc] bc: skip bc 2]
-            5 [prin " po"]
-            6 [prin " pl"]
+            5 [prin " ss" ++ bc prin first bc]
+           ;6 [prin " "]
             7 [prin " vo" ++ bc prin first bc]
             8 [prin " fp" ++ bc prin first bc]
            12 [prin " fi"]

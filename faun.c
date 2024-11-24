@@ -1530,17 +1530,12 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 pc += 2;
                 break;
 
-            case FO_STREAM_ONCE:
-            case FO_STREAM_LOOP:
+            case FO_START_STREAM:
                 if (prog->si >= _sourceLimit) {
-                    int mode;
-                    src = _asource + prog->si;
-                    mode = src->mode;
-                    if (pc[-1] == FO_STREAM_LOOP)
-                        mode |= FAUN_PLAY_LOOP;
-                    source_setMode(src, mode);
+                    source_setMode(_asource + prog->si, pc[0]);
                     stream_start(_stream + (prog->si - _sourceLimit));
                 }
+                ++pc;
                 break;
 
             case FO_SET_VOL:

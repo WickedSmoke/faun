@@ -211,19 +211,13 @@ int main(int argc, char** argv)
                     *pc++ = (arg[1] == 'n') ? FO_LOOP_OFF : FO_LOOP_ON;
                     break;
 
-                case 'p':               // pl - Play stream loop
-                                        // po - Play stream once
-                                        // pb - Play buffer & set mode
+                case 'p':               // pb - Play buffer & set mode
                                         // pa - Pan
                     if (arg[1] == 'a') {
                         PUSH_OP_ARG(FO_PAN);
                         INC_ARG;
                         *pc++ = atoi(argv[i]);
-                    } else if (arg[1] == 'l')
-                        *pc++ = FO_STREAM_LOOP;
-                    else if (arg[1] == 'o')
-                        *pc++ = FO_STREAM_ONCE;
-                    else {
+                    } else {
                         PUSH_OP_ARG(FO_PLAY_BUF);
                         INC_ARG;
                         *pc++ = hex(argv[i]);
@@ -235,7 +229,13 @@ int main(int argc, char** argv)
                     break;
 
                 case 's':               // so - Set Source
-                    PUSH_OP_ARG(FO_SOURCE);
+                                        // ss - Start Stream
+                    if (arg[1] == 'o') {
+                        PUSH_OP_ARG(FO_SOURCE);
+                    } else {
+                        *pc++ = FO_START_STREAM;
+                        *pc++ = hex(arg + 2);
+                    }
                     break;
 
                 case 'v':               // vo - Volume Parameter

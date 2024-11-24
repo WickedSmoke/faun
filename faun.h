@@ -33,8 +33,8 @@ enum FaunOpcode {
     FO_SOURCE,          // Source #
     FO_QUEUE,           // Buffer #
     FO_PLAY_BUF,        // Buffer #, mode
-    FO_STREAM_ONCE,
-    FO_STREAM_LOOP,
+    FO_START_STREAM,    // mode
+    FO_RESERVED0,
     FO_SET_VOL,         // Unit value
     FO_SET_FADE,        // 1/10 second units
     FO_SET_END,         // 1/10 second units
