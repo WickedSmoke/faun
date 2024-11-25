@@ -1540,17 +1540,14 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
 
             case FO_SET_VOL:
                 // Set playVolume parameter; current volume is not changed.
-                src = _asource + prog->si;
-                src->playVolume = (float) (*pc++) / 255.0f;
+                _asource[prog->si].playVolume = (float) (*pc++) / 255.0f;
                 break;
 
             case FO_SET_FADE:
-                src = _asource + prog->si;
-                src->fadePeriod = (float) (*pc++) / 10.0f;
+                _asource[prog->si].fadePeriod = (float) (*pc++) / 10.0f;
                 break;
 
             case FO_SET_END:
-                src = _asource + prog->si;
             {
                 uint32_t pos = *pc++;
                 _asource[prog->si].endPos = pos ? pos * 4410 : END_POS_NONE;
