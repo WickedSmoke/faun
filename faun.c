@@ -1404,22 +1404,17 @@ void faun_mixBuffers(float* output, const float** input,
 #ifdef SIMUL_MIX
     float* end = output + sampleCount;
     int initial = 1;
-    int q = 0;
-    int i;
 
-    for (i = 0; i < inCount; i++) {
-        if (q == 3) {
-            q = 0;
-            _mix4Stereo(output, end, input, gainL, gainR, initial);
-            initial = 0;
-            input += 4;
-            gainL += 4;
-            gainR += 4;
-        } else
-            q++;
+    while (inCount > 3) {
+        inCount -= 4;
+        _mix4Stereo(output, end, input, gainL, gainR, initial);
+        initial = 0;
+        input += 4;
+        gainL += 4;
+        gainR += 4;
     }
 
-    switch (q) {
+    switch (inCount) {
         case 3:
             _mix2Stereo(output, end, input, gainL, gainR, initial);
             _mix1Stereo(output, end, input[2], gainL[2], gainR[2], 0);
