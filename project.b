@@ -1,5 +1,5 @@
 options [
-    flac:   true    "Use foxenflac loader (GPL)"
+    flac:   true    "Use libFLAC loader"
     static: false   "Build static library"
     ftest:  false   "Build faun_test program (modifies library)"
     load-mem: true  "Include functions to load buffers from memory"
@@ -19,6 +19,7 @@ libfaun: [
 ]
 
 faun-dep: [
+    if flac [libs %FLAC]
     linux [libs [%pulse %vorbisfile %pthread %m]]
     win32 [
         either msvc

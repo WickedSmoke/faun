@@ -354,8 +354,14 @@ static atomic_flag _pidLock;
 
 #include "wav_read.c"
 
+static void _allocBufferVoice(FaunBuffer*, int);
+
 #ifdef USE_FLAC
+#ifdef FOXEN_FLAC
 #include "flac.c"
+#else
+#include "FlacReader.c"
+#endif
 #endif
 
 #ifdef USE_SFX_GEN
@@ -374,7 +380,6 @@ int sfx_random(int range) {
     return faun_random(&_rng) % range;
 }
 
-static void _allocBufferVoice(FaunBuffer*, int);
 static void convertMono(float*, float*, float**);
 
 static void faun_generateSfx(FaunBuffer* buf, const SfxParams* sp)
@@ -644,6 +649,7 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
 #ifdef USE_FLAC
       else if (wh.idRIFF == ID_FLAC)
       {
+#ifdef FOXEN_FLAC
         const int bufSize = 128;
         const int decodeSize = 512;
         uint8_t* readBuf;
@@ -721,6 +727,10 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
 
         free(decodeBuf);
         free(flac);
+#else
+        fseek(fp, -wavReadLen, SEEK_CUR);
+        error = libFlacDecode(fp, size, buf);
+#endif
       }
 #endif
 #ifdef USE_SFX_GEN
@@ -740,6 +750,12 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
       }
 #endif
     }
+
+#if 0
+    fp = wav_open("/tmp/out.wav", 44100, 16, 2);
+    wav_write(fp, buf->sample.f32, buf->used*2);
+    wav_close(fp);
+#endif
 
     return error;
 }

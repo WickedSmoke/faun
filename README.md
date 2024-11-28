@@ -88,15 +88,15 @@ Build Instructions
 
 ### Linux Dependencies
 
-The Vorbis and PulseAudio libraries (with headers) must be installed.
+The FLAC, Vorbis and PulseAudio libraries (with headers) must be installed.
 
 Fedora:
 
-    sudo dnf install libvorbis-devel pulseaudio-libs-devel
+    sudo dnf install flac-devel libvorbis-devel pulseaudio-libs-devel
 
-Ubuntu:
+Debian & Ubuntu:
 
-    sudo apt install libvorbis-dev libpulse-dev
+    sudo apt install libflac-dev libvorbis-dev libpulse-dev
 
 ### Build for Linux
 

@@ -10,9 +10,6 @@ CFLAGS+=-O3 -DNDEBUG
 #CFLAGS+=-g -DDEBUG
 
 OPT=-DUSE_LOAD_MEM -DUSE_SFX_GEN
-ifeq ($(FLAC),1)
-	OPT+=-DUSE_FLAC
-endif
 
 DESTDIR ?= /usr/local
 
@@ -26,6 +23,11 @@ LIB_DIR=$(DESTDIR)/lib
 endif
 
 DEP_LIB = -lpulse -lvorbisfile -lpthread -lm
+
+ifeq ($(FLAC),1)
+OPT+=-DUSE_FLAC
+DEP_LIB+=-lFLAC
+endif
 
 ifdef STATIC_LIB
 FAUN_LIB=libfaun.a
