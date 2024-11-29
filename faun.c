@@ -650,7 +650,7 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
       else if (wh.idRIFF == ID_FLAC)
       {
 #ifdef FOXEN_FLAC
-        const int bufSize = 128;
+        const int bufSize = 256;
         const int decodeSize = 512;
         uint8_t* readBuf;
         int32_t* decodeBuf;
@@ -669,13 +669,25 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
         memcpy(readBuf, &wh, wavReadLen);
         bufPos = wavReadLen;
 
+        if (size)
+            size -= wavReadLen;
+        else
+            size = UINT32_MAX;
+
         while (1) {
-            toRead = bufSize - bufPos;
-            if (toRead > 0) {
-                n = fread(readBuf + bufPos, 1, toRead, fp);
-                if (n == 0)
-                    break;
-                bufPos += n;    // Advance the write cursor
+            if (size) {
+                toRead = bufSize - bufPos;
+                if (toRead > 0) {
+                    if (toRead > size)
+                        toRead = size;
+                    n = fread(readBuf + bufPos, 1, toRead, fp);
+                    if (n == 0) {
+                        size = 0;       // Stop reading but continue decoding.
+                    } else {
+                        size -= n;
+                        bufPos += n;    // Advance the write cursor
+                    }
+                }
             }
 
             inUsed  = bufPos;
@@ -718,9 +730,16 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
                 }
             }
 
-            // Move unprocessed bytes to the beginning of readBuf.
             n = bufPos - inUsed;
-            memmove(readBuf, readBuf + inUsed, n);
+            if (n == 0) {
+                // Exit loop when both decoding & reading are done.
+                if (procLen == 0 && size == 0)
+                    break;
+            } else if (inUsed) {
+                // Move unprocessed bytes to the beginning of readBuf.
+                //printf("KR unproc %ld pos:%d used:%d\n", n, bufPos, inUsed);
+                memmove(readBuf, readBuf + inUsed, n);
+            }
             bufPos = n;
         }
         buf->used = frames;
