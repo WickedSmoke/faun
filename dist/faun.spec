@@ -2,10 +2,10 @@ Summary: High-level C library for playing sound & music
 Name: faun
 Version: 0.2.0
 Release: %autorelease
-License: GPL-2.0-or-later
+License: MIT
 URL: https://codeberg.org/wickedsmoke/faun
 Source: https://codeberg.org/wickedsmoke/faun/archive/v%{version}.tar.gz
-BuildRequires: gcc, make, libvorbis-devel, pulseaudio-libs-devel
+BuildRequires: gcc, make, flac-devel, libvorbis-devel, pulseaudio-libs-devel
 
 %global debug_package %{nil}
 
@@ -26,6 +26,7 @@ programs that use Faun.
 %setup -q -n %{name}
 
 %build
+./configure
 make
 
 %install
@@ -35,7 +36,7 @@ make DESTDIR="$RPM_BUILD_ROOT/usr" install
 rm -rf $RPM_BUILD_ROOT
 
 %files
-%license COPYING
+%license LICENSE
 %defattr(-,root,root)
 %{_libdir}/libfaun.so.0
 %{_libdir}/libfaun.so.%{version}
@@ -47,5 +48,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_includedir}/faun.h
 
 %changelog
+* Fri Nov 29 2024 Karl Robillard <wickedsmoke@users.sf.net> 0.2.0
+  - Use libFLAC, change license.
 * Thu Jun 15 2023 Karl Robillard <wickedsmoke@users.sf.net>
   - Initial package release.
