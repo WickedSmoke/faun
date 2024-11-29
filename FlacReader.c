@@ -54,6 +54,11 @@ static void flacMetadata(const FLAC__StreamDecoder* fdec,
                rd->totalSamples, rd->rate, rd->channels, rd->bitsPerSample);
 #endif
 
+        if (rd->rate != 44100 && rd->rate != 22050) {
+            fprintf(_errStream, "FLAC sample rate %d not handled\n", rd->rate);
+            return;
+        }
+
         if (rd->bitsPerSample < 16) {
             fprintf(_errStream, "FLAC bps %d not handled\n", rd->bitsPerSample);
             return;
@@ -75,22 +80,45 @@ static FLAC__StreamDecoderWriteStatus flacWrite(const FLAC__StreamDecoder* fdec,
     const FLAC__int32* chan1;
     size_t i, procLen = frame->header.blocksize;
     int shift = rd->bitsPerSample - 16;
+    float ds0, ds1;
     (void) fdec;
 
     if (! pcmOut)
         return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
 
-    if (rd->channels == 1) {
-        for (i = 0; i < procLen; i++) {
-            float ds = (chan0[i] >> shift) / 32767.0f;
-            *pcmOut++ = ds;
-            *pcmOut++ = ds;
+    if (rd->rate == 22050) {
+        if (rd->channels == 1) {
+            for (i = 0; i < procLen; i++) {
+                ds0 = (chan0[i] >> shift) / 32767.0f;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds0;
+            }
+        } else {
+            chan1 = buffer[1];
+            for (i = 0; i < procLen; i++) {
+                ds0 = (chan0[i] >> shift) / 32767.0f;
+                ds1 = (chan1[i] >> shift) / 32767.0f;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds1;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds1;
+            }
         }
     } else {
-        chan1 = buffer[1];
-        for (i = 0; i < procLen; i++) {
-            *pcmOut++ = (chan0[i] >> shift) / 32767.0f;
-            *pcmOut++ = (chan1[i] >> shift) / 32767.0f;
+        if (rd->channels == 1) {
+            for (i = 0; i < procLen; i++) {
+                ds0 = (chan0[i] >> shift) / 32767.0f;
+                *pcmOut++ = ds0;
+                *pcmOut++ = ds0;
+            }
+        } else {
+            chan1 = buffer[1];
+            for (i = 0; i < procLen; i++) {
+                *pcmOut++ = (chan0[i] >> shift) / 32767.0f;
+                *pcmOut++ = (chan1[i] >> shift) / 32767.0f;
+            }
         }
     }
 
