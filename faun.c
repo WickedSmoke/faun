@@ -126,6 +126,7 @@ enum FaunCmd {
     CMD_CON_FADE_OUT,
 
     CMD_PARAM_VOLUME,
+    CMD_PARAM_VOLUME_APPLY,
     CMD_PARAM_FADE_PERIOD,
     CMD_PARAM_END_TIME,
 
@@ -1829,14 +1830,21 @@ read_prog:
                     break;
 
                 case CMD_PARAM_VOLUME:
+                case CMD_PARAM_VOLUME_APPLY:
                     //printf("CMD param-vol %d:%d %f\n",
                     //       cmd->select, cmd->ext, cmd->arg.f[0]);
+                {
+                    float vol = cmd->arg.f[0];
+                    int apply = (cmd->op == CMD_PARAM_VOLUME_APPLY);
                     src = _asource + cmd->select;
                     n = cmd->ext;
                     while (n--) {
-                        src->playVolume = cmd->arg.f[0];
+                        src->playVolume = vol;
+                        if (apply)
+                            source_setGain(src, vol, vol);
                         ++src;
                     }
+                }
                     break;
 
                 case CMD_PARAM_FADE_PERIOD:
@@ -2154,6 +2162,10 @@ static void faun_command2(int op, int select)
   \var FaunParameter::FAUN_VOLUME
   This is the volume (or fade in target) used when playback begins.
   The value ranges from 0.0 to 1.0.  The default value is 1.0.
+
+  \var FaunParameter::FAUN_VOLUME_APPLY
+  This sets the volume parameter like #FAUN_VOLUME and also immediately
+  changes the current volume.
 
   \var FaunParameter::FAUN_FADE_PERIOD
   Duration in seconds for fading in & out.  The default value is 1.5 seconds.

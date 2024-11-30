@@ -82,6 +82,7 @@ enum FaunPlayMode {
 
 enum FaunParameter {
     FAUN_VOLUME,
+    FAUN_VOLUME_APPLY,
     FAUN_FADE_PERIOD,
     FAUN_END_TIME,
     FAUN_PARAM_COUNT
