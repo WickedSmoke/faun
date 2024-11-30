@@ -25,8 +25,10 @@ endif
 DEP_LIB = -lpulse -lvorbisfile -lpthread -lm
 
 ifeq ($(FLAC),1)
-OPT+=-DUSE_FLAC
+OPT+=-DUSE_FLAC=1
 DEP_LIB+=-lFLAC
+else ifeq ($(FLAC),2)
+OPT+=-DUSE_FLAC=2
 endif
 
 ifdef STATIC_LIB

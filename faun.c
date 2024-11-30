@@ -357,11 +357,7 @@ static atomic_flag _pidLock;
 static void _allocBufferVoice(FaunBuffer*, int);
 
 #ifdef USE_FLAC
-#ifdef FOXEN_FLAC
-#include "flac.c"
-#else
 #include "FlacReader.c"
-#endif
 #endif
 
 #ifdef USE_SFX_GEN
@@ -646,112 +642,17 @@ static const char* faun_readBuffer(FaunBuffer* buf, FILE* fp,
             ov_clear(&os.vf);
         }
       }
-#ifdef USE_FLAC
       else if (wh.idRIFF == ID_FLAC)
       {
-#ifdef FOXEN_FLAC
-        const int bufSize = 256;
-        const int decodeSize = 512;
-        uint8_t* readBuf;
-        int32_t* decodeBuf;
-        size_t toRead, n;
-        uint32_t inUsed, procLen;
-        uint32_t bufPos = 0;
-        //uint32_t frate;
-        uint32_t fchannels;
-        float* pcmOut = NULL;
-        fx_flac_state_t fstate;
-        fx_flac_t* flac = FX_FLAC_ALLOC_SUBSET_FORMAT_DAT();
-
-        decodeBuf = (int32_t*) malloc(decodeSize*sizeof(int32_t) + bufSize);
-        readBuf   = (uint8_t*) (decodeBuf + decodeSize);
-
-        memcpy(readBuf, &wh, wavReadLen);
-        bufPos = wavReadLen;
-
-        if (size)
-            size -= wavReadLen;
-        else
-            size = UINT32_MAX;
-
-        while (1) {
-            if (size) {
-                toRead = bufSize - bufPos;
-                if (toRead > 0) {
-                    if (toRead > size)
-                        toRead = size;
-                    n = fread(readBuf + bufPos, 1, toRead, fp);
-                    if (n == 0) {
-                        size = 0;       // Stop reading but continue decoding.
-                    } else {
-                        size -= n;
-                        bufPos += n;    // Advance the write cursor
-                    }
-                }
-            }
-
-            inUsed  = bufPos;
-            procLen = decodeSize;
-            fstate = fx_flac_process(flac, readBuf, &inUsed,
-                                           decodeBuf, &procLen);
-            if (fstate == FLAC_ERR) {
-                error = "FLAC decode failed";
-                break;
-            }
-            if (fstate == FLAC_END_OF_METADATA) {
-              //frate     = fx_flac_get_streaminfo(flac, FLAC_KEY_SAMPLE_RATE);
-                fchannels = fx_flac_get_streaminfo(flac, FLAC_KEY_N_CHANNELS);
-                frames    = fx_flac_get_streaminfo(flac, FLAC_KEY_N_SAMPLES);
-
-                //printf("FLAC rate:%d channels:%d samples:%d\n",
-                //        frate, fchannels, frames);
-
-                // NOTE: Zero for total samples denotes 'unknown' and is valid.
-                if (! frames) {
-                    error = "FLAC total samples is unknown";
-                    break;
-                }
-
-                _allocBufferVoice(buf, frames);
-                pcmOut = buf->sample.f32;
-            }
-
-            // Save decoded samples to PCM buffer.
-            if (pcmOut) {
-                if (fchannels == 1) {
-                    for (uint32_t i = 0; i < procLen; i++) {
-                        float ds = (decodeBuf[i] >> 16) / 32767.0f;
-                        *pcmOut++ = ds;
-                        *pcmOut++ = ds;
-                    }
-                } else {
-                    for (uint32_t i = 0; i < procLen; i++)
-                        *pcmOut++ = (decodeBuf[i] >> 16) / 32767.0f;
-                }
-            }
-
-            n = bufPos - inUsed;
-            if (n == 0) {
-                // Exit loop when both decoding & reading are done.
-                if (procLen == 0 && size == 0)
-                    break;
-            } else if (inUsed) {
-                // Move unprocessed bytes to the beginning of readBuf.
-                //printf("KR unproc %ld pos:%d used:%d\n", n, bufPos, inUsed);
-                memmove(readBuf, readBuf + inUsed, n);
-            }
-            bufPos = n;
-        }
-        buf->used = frames;
-
-        free(decodeBuf);
-        free(flac);
+#ifndef USE_FLAC
+        error = "Faun built without FLAC support";
+#elif USE_FLAC == 2
+        error = foxenFlacDecode(fp, size, buf, &wh, wavReadLen);
 #else
         fseek(fp, -wavReadLen, SEEK_CUR);
         error = libFlacDecode(fp, size, buf);
 #endif
       }
-#endif
 #ifdef USE_SFX_GEN
       else if (wh.idRIFF == ID_RFX_)
       {

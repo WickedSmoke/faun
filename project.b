@@ -1,13 +1,20 @@
 options [
-    flac:   true    "Use libFLAC loader"
-    static: false   "Build static library"
-    ftest:  false   "Build faun_test program (modifies library)"
-    load-mem: true  "Include functions to load buffers from memory"
+    flac:   'libflac    "FLAC loader implementation ('libflac 'foxen none)"
+    static: false       "Build static library"
+    ftest:  false       "Build faun_test program (modifies library)"
+    load-mem: true      "Include functions to load buffers from memory"
+]
+
+if int? flac [
+    flac: pick [libflac foxen] flac
 ]
 
 libfaun: [
     cflags "-DUSE_SFX_GEN"
-    if flac  [cflags "-DUSE_FLAC"]
+    switch flac [
+        libflac [cflags "-DUSE_FLAC=1"]
+        foxen   [cflags "-DUSE_FLAC=2"]
+    ]
     if ftest [cflags "-DCAPTURE"]
     if load-mem [cflags "-DUSE_LOAD_MEM"]
     include_from %support
@@ -19,7 +26,7 @@ libfaun: [
 ]
 
 faun-dep: [
-    if flac [libs %FLAC]
+    if eq? flac 'libflac [libs %FLAC]
     linux [libs [%pulse %vorbisfile %pthread %m]]
     win32 [
         either msvc
