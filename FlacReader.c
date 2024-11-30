@@ -12,10 +12,11 @@ static const char* foxenFlacDecode(FILE* fp, uint32_t size, FaunBuffer* buf,
     size_t toRead, n;
     uint32_t inUsed, procLen;
     uint32_t bufPos = 0;
-    //uint32_t frate;
+    uint32_t frate;
     uint32_t fchannels;
     uint32_t frames = 0;
     float* pcmOut = NULL;
+    float ds0, ds1;
     fx_flac_state_t fstate;
     fx_flac_t* flac = FX_FLAC_ALLOC_SUBSET_FORMAT_DAT();
 
@@ -55,12 +56,17 @@ static const char* foxenFlacDecode(FILE* fp, uint32_t size, FaunBuffer* buf,
             break;
         }
         if (fstate == FLAC_END_OF_METADATA) {
-          //frate     = fx_flac_get_streaminfo(flac, FLAC_KEY_SAMPLE_RATE);
+            frate     = fx_flac_get_streaminfo(flac, FLAC_KEY_SAMPLE_RATE);
             fchannels = fx_flac_get_streaminfo(flac, FLAC_KEY_N_CHANNELS);
             frames    = fx_flac_get_streaminfo(flac, FLAC_KEY_N_SAMPLES);
 
             //printf("FLAC rate:%d channels:%d samples:%d\n",
             //        frate, fchannels, frames);
+
+            if (frate != 44100 && frate != 22050) {
+                error = "FLAC sample rate is unsupported";
+                break;
+            }
 
             // NOTE: Zero for total samples denotes 'unknown' and is valid.
             if (! frames) {
@@ -74,15 +80,37 @@ static const char* foxenFlacDecode(FILE* fp, uint32_t size, FaunBuffer* buf,
 
         // Save decoded samples to PCM buffer.
         if (pcmOut) {
-            if (fchannels == 1) {
-                for (uint32_t i = 0; i < procLen; i++) {
-                    float ds = (decodeBuf[i] >> 16) / 32767.0f;
-                    *pcmOut++ = ds;
-                    *pcmOut++ = ds;
+            if (frate == 22050) {
+                if (fchannels == 1) {
+                    for (uint32_t i = 0; i < procLen; i++) {
+                        ds0 = (decodeBuf[i] >> 16) / 32767.0f;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds0;
+                    }
+                } else {
+                    for (uint32_t i = 0; i < procLen; i++) {
+                        ds0 = (decodeBuf[i] >> 16) / 32767.0f;
+                        ++i;
+                        ds1 = (decodeBuf[i] >> 16) / 32767.0f;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds1;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds1;
+                    }
                 }
             } else {
-                for (uint32_t i = 0; i < procLen; i++)
-                    *pcmOut++ = (decodeBuf[i] >> 16) / 32767.0f;
+                if (fchannels == 1) {
+                    for (uint32_t i = 0; i < procLen; i++) {
+                        ds0 = (decodeBuf[i] >> 16) / 32767.0f;
+                        *pcmOut++ = ds0;
+                        *pcmOut++ = ds0;
+                    }
+                } else {
+                    for (uint32_t i = 0; i < procLen; i++)
+                        *pcmOut++ = (decodeBuf[i] >> 16) / 32767.0f;
+                }
             }
         }
 
