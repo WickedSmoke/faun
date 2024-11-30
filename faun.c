@@ -925,6 +925,17 @@ static void signalDone(const FaunSource* src)
 }
 
 
+/*
+  Immediately set current volumes and halt fading.
+*/
+static inline void source_setGain(FaunSource* src, float volL, float volR)
+{
+    src->gainL = volL;
+    src->gainR = volR;
+    src->fadeL = src->fadeR = 0.0f;
+}
+
+
 #define FADE_DELTA(vol,period)  ((vol / period) / 44100.0f)
 #define GAIN_SILENCE_THRESHOLD  0.001f
 
@@ -945,9 +956,7 @@ static void source_setFadeDeltas(FaunSource* src)
                                                  :  inc * src->targetR;
 #endif
     } else {
-        src->gainL = src->targetL;
-        src->gainR = src->targetR;
-        src->fadeL = src->fadeR = 0.0f;
+        source_setGain(src, src->targetL, src->targetR);
     }
 
 #if 0
@@ -990,12 +999,9 @@ static void source_setMode(FaunSource* src, int mode)
         source_setFadeDeltas(src);
     } else if (mode & PLAY_TARGET_VOL) {
         // Reset after any previous fade out.
-        src->gainL = src->targetL;
-        src->gainR = src->targetR;
-        src->fadeL = src->fadeR = 0.0f;
+        source_setGain(src, src->targetL, src->targetR);
     } else {
-        src->gainL = src->gainR = src->playVolume;
-        src->fadeL = src->fadeR = 0.0f;
+        source_setGain(src, src->playVolume, src->playVolume);
     }
     src->endPos =
     src->fadePos = END_POS_NONE;
@@ -1522,11 +1528,9 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
                 break;
 
             case FO_VOL_LR:     // L volume, R volume
-                // Immediately set current volumes.
-                src = _asource + prog->si;
-                src->gainL = (float) pc[0] / 255.0f;
-                src->gainR = (float) pc[1] / 255.0f;
-                src->fadeL = src->fadeR = 0.0f;
+                source_setGain(_asource + prog->si,
+                               (float) pc[0] / 255.0f,
+                               (float) pc[1] / 255.0f);
                 pc += 2;
                 break;
 
@@ -1559,6 +1563,40 @@ static void faun_evalProg(FaunProgram* prog, uint32_t mixClock)
             }
 #endif
                 break;
+#if 0
+            case FO_SET_VOL_f:
+            {
+                const float* farg = (float*) prog->code;
+                _asource[prog->si].playVolume = farg[ *pc++ ];
+            }
+                break;
+
+            case FO_SET_FADE_f:
+            {
+                const float* farg = (float*) prog->code;
+                _asource[prog->si].fadePeriod = farg[ *pc++ ];
+            }
+                break;
+
+            case FO_VOL_LR_f:
+            {
+                const float* farg = (float*) prog->code;
+                source_setGain(_asource + prog->si, farg[pc[0]], farg[pc[1]]);
+            }
+                pc += 2;
+                break;
+
+            case FO_PAN_f:
+            {
+                const float* farg = (float*) prog->code;
+                src = _asource + prog->si;
+                src->targetL = farg[pc[0]];
+                src->targetR = farg[pc[1]];
+                source_setFadeDeltas(src);
+            }
+                pc += 2;
+                break;
+#endif
         }
     } while (pc != end);
 

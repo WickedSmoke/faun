@@ -46,6 +46,12 @@ enum FaunOpcode {
     FO_PAN,             // L target, R target
     FO_SIGNAL,
     FO_CAPTURE,
+    /*
+    FO_SET_VOL_f,       // float argN
+    FO_SET_FADE_f,      // float argN
+    FO_VOL_LR_f,        // float argN
+    FO_PAN_f,           // float argN, float argN
+    */
     FO_COUNT
 };
 
