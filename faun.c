@@ -2707,7 +2707,7 @@ static uint32_t faun_nextPlayId(int si)
                 queue two or three buffers.
   \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE or #FAUN_PLAY_LOOP).
 
-  \returns Opaque play identifier or zero if playback could not start.
+  \returns Unique play identifier or zero if playback could not start.
 
   \sa faun_playSourceVol()
 */
@@ -2742,7 +2742,7 @@ uint32_t faun_playSource(int si, int bi, int mode)
   \param volL   Volume of left channel (0.0 to 1.0).
   \param volR   Volume of right channel (0.0 to 1.0).
 
-  \returns Opaque play identifier or zero if playback could not start.
+  \returns Unique play identifier or zero if playback could not start.
 
   \sa faun_playSource()
 */
@@ -2783,7 +2783,7 @@ uint32_t faun_playSourceVol(int si, int bi, int mode, float volL, float volR)
                 is to be used.
   \param mode   The FaunPlayMode (#FAUN_PLAY_ONCE, #FAUN_PLAY_LOOP, etc.).
 
-  \returns Opaque play identifier or zero if streaming could not start.
+  \returns Unique play identifier or zero if streaming could not start.
 */
 uint32_t faun_playStream(int si, const char* file, uint32_t offset,
                          uint32_t size, int mode)
